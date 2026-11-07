@@ -5,6 +5,8 @@ import { DEFAULT_WINDOWS, judgementTimeMs } from '../../domain/evaluation/matche
 import type { Judgement, Tap } from '../../domain/evaluation/matcher.ts'
 import type { PracticeMetrics } from '../../domain/evaluation/metrics.ts'
 import { createBarFlow, recordBar } from '../../domain/practice/bar-flow.ts'
+import { INITIAL_AUTO_ADJUST, nextAutoAdjust } from '../../domain/practice/auto-adjust.ts'
+import type { AutoAdjustOptions, AutoAdjustState } from '../../domain/practice/auto-adjust.ts'
 import type { ExpectedEvent } from '../../domain/rhythm/event-generator.ts'
 import type { BarFlow, BarOutcome } from '../../domain/practice/bar-flow.ts'
 import type { Stage } from '../../domain/curriculum/stages.ts'
@@ -28,24 +30,29 @@ export type StageFlowResult = {
   units: RhythmPattern[]
   bpm: number
   lastMetrics: (PracticeMetrics | null)[]
-  change: LiveChange | null
+  manual: Partial<LiveChange>
+  tempoRaised: boolean
 }
 
 export type StageFlowResume = {
   flow: BarFlow
   lastMetrics: (PracticeMetrics | null)[]
   change: LiveChange
+  manual: Partial<LiveChange>
+  autoAdjust: AutoAdjustState
 }
 
 type Props = {
   stage: Stage
   units: RhythmPattern[]
   settings: StoredSettings
+  current: LiveChange
   plan: BarFlowPlan
   audioStart: number
   scheduledSlots: number
   initialFlow?: BarFlow
   initialLastMetrics?: (PracticeMetrics | null)[]
+  initialAutoAdjust?: AutoAdjustState
   onFinish: (result: StageFlowResult) => void
   onRestart: (resume: StageFlowResume) => void
   onCancel: (reason?: string) => void
@@ -112,6 +119,37 @@ function deriveFlow(input: FlowInput): FlowState {
   return { flow, slots, decisions, lastMetrics, pendingSlot: slot }
 }
 
+type AutoAdjustWalk = {
+  state: AutoAdjustState
+  change: { slot: number; values: LiveChange } | null
+}
+
+// 다시 시작하면 그 뒤 칸은 새 세션이 맡으므로 이 세션에서는 첫 조절까지만 본다.
+function walkAutoAdjust(options: AutoAdjustOptions, initial: AutoAdjustState, current: LiveChange, decisions: Record<number, BarOutcome>): AutoAdjustWalk {
+  let state = initial
+  const decidedSlots = Object.keys(decisions)
+    .map(Number)
+    .sort((left, right) => left - right)
+  for (const slot of decidedSlots) {
+    const step = nextAutoAdjust(options, state, current, decisions[slot])
+    state = step.state
+    if (step.change) {
+      return { state, change: { slot, values: step.change } }
+    }
+  }
+  return { state, change: null }
+}
+
+function manualFields(change: LiveChange | null, current: LiveChange): Partial<LiveChange> {
+  if (change === null) {
+    return {}
+  }
+  return {
+    ...(change.bpm !== current.bpm ? { bpm: change.bpm } : {}),
+    ...(change.guide !== current.guide ? { guide: change.guide } : {}),
+  }
+}
+
 const CLOCK_FREEZE_BEFORE_PERFORM_MS = 200
 const RECENT_TAP_COUNT = 8
 
@@ -138,11 +176,13 @@ export default function StageFlowScreen({
   stage,
   units,
   settings,
+  current,
   plan,
   audioStart,
   scheduledSlots,
   initialFlow,
   initialLastMetrics,
+  initialAutoAdjust = INITIAL_AUTO_ADJUST,
   onFinish,
   onRestart,
   onCancel,
@@ -175,18 +215,40 @@ export default function StageFlowScreen({
   useEffect(() => {
     if (state.flow.finished && !finishedRef.current) {
       finishedRef.current = true
-      onFinish({ flow: state.flow, units, bpm: settings.bpm, lastMetrics: state.lastMetrics, change: liveChange })
+      onFinish({
+        flow: state.flow,
+        units,
+        bpm: current.bpm,
+        lastMetrics: state.lastMetrics,
+        manual: manualFields(liveChange, current),
+        tempoRaised: initialAutoAdjust.tempoRaised,
+      })
     }
-  }, [state.flow, state.lastMetrics, units, settings.bpm, onFinish, liveChange])
+  }, [state.flow, state.lastMetrics, units, current, onFinish, liveChange, initialAutoAdjust])
 
-  // 바꾼 설정은 요청할 때 치던 칸의 판정이 끝나면 세션을 새로 시작해 적용한다.
-  const restartDue = liveChange !== null && changeSlot !== null && state.decisions[changeSlot] !== undefined && nowMs - clock.originMs >= plan.decisionMs(changeSlot)
+  const autoAdjustOptions: AutoAdjustOptions = { tempoRamp: settings.tempoRamp, guideFade: settings.guideFade, guideCeiling: settings.guide }
+  const autoWalk = walkAutoAdjust(autoAdjustOptions, initialAutoAdjust, current, state.decisions)
+  const elapsedSinceOriginMs = nowMs - clock.originMs
+
+  // 바꾼 설정은 요청할 때 치던 칸의 판정이 끝나면 세션을 새로 시작해 적용한다. 자동 조절도 같은 길로 적용한다.
+  const manualDue = liveChange !== null && changeSlot !== null && state.decisions[changeSlot] !== undefined && elapsedSinceOriginMs >= plan.decisionMs(changeSlot)
+  const autoDue = autoWalk.change !== null && elapsedSinceOriginMs >= plan.decisionMs(autoWalk.change.slot)
+  const restartDue = manualDue || autoDue
   useEffect(() => {
-    if (restartDue && liveChange && !state.flow.finished && !finishedRef.current) {
-      finishedRef.current = true
-      onRestart({ flow: state.flow, lastMetrics: state.lastMetrics, change: liveChange })
+    if (!restartDue || state.flow.finished || finishedRef.current) {
+      return
     }
-  }, [restartDue, liveChange, state.flow, state.lastMetrics, onRestart])
+    finishedRef.current = true
+    const manual = manualFields(liveChange, current)
+    const adjusted = autoWalk.change?.values ?? current
+    onRestart({
+      flow: state.flow,
+      lastMetrics: state.lastMetrics,
+      change: { ...adjusted, ...manual },
+      manual,
+      autoAdjust: autoWalk.state,
+    })
+  }, [restartDue, liveChange, current, autoWalk, state.flow, state.lastMetrics, onRestart])
 
   const recordTap = useCallback(
     (timeMs: number, zone: TapZone) => {
@@ -293,14 +355,14 @@ export default function StageFlowScreen({
           ← 그만하기
         </button>
         <span className="muted">
-          {stage.number}. {stage.title} · {settings.bpm} BPM
+          {stage.number}. {stage.title} · {current.bpm} BPM
         </span>
         <button type="button" className="link-button" onClick={() => setSkippedSlots((previous) => new Set([...previous, pendingSlot]))}>
           건너뛰기 →
         </button>
       </header>
       <LiveControls
-        current={{ bpm: settings.bpm, guide: settings.guide }}
+        current={current}
         pending={liveChange}
         untilLabel="다음 두 마디"
         onChange={(next) => {

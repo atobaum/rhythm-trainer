@@ -13,6 +13,8 @@ import type { Stage } from '../../domain/curriculum/stages.ts'
 import { QUICK_ITEM_LABELS, nextQuickItem, quickTimeUp } from '../../domain/curriculum/quick-curation.ts'
 import type { QuickHistoryEntry } from '../../domain/curriculum/quick-curation.ts'
 import { outcomeScore, weakness } from '../../domain/practice/skill.ts'
+import { INITIAL_AUTO_ADJUST } from '../../domain/practice/auto-adjust.ts'
+import type { AutoAdjustState } from '../../domain/practice/auto-adjust.ts'
 import { STRUM_PATTERNS } from '../../domain/rhythm/strum-patterns.ts'
 import { singleHand } from '../../domain/rhythm/two-hand-patterns.ts'
 import type { RhythmPattern } from '../../domain/rhythm/pattern.ts'
@@ -77,6 +79,8 @@ type Screen =
       scheduledSlots: number
       resume: StageFlowResume | null
       manualTempo: boolean
+      current: LiveChange
+      autoAdjust: AutoAdjustState
     }
   | { kind: 'stage-summary'; stage: Stage; result: StageFlowResult; tempoChange: number }
   | { kind: 'calibration'; attempt: number; audioStart: number }
@@ -224,6 +228,9 @@ export default function PracticeApp() {
     saveSettings(next)
   }
 
+  const withManualChange = (base: StoredSettings, manual: Partial<LiveChange>): StoredSettings =>
+    manual.bpm === undefined && manual.guide === undefined ? base : { ...base, ...manual }
+
   const restartLoop = (resume: LoopResume) => {
     if (screen.kind !== 'session') {
       return
@@ -260,15 +267,22 @@ export default function PracticeApp() {
       scheduledSlots: firstSlots.length,
       resume: continuing?.resume ?? null,
       manualTempo: continuing?.manualTempo ?? false,
+      current: { bpm, guide },
+      autoAdjust: continuing?.resume.autoAdjust ?? INITIAL_AUTO_ADJUST,
     })
   }
 
+  // 자동 조절로 바뀐 값은 이번 연습에만 쓰고, 손으로 바꾼 값만 설정에 저장한다.
   const restartStageFlow = (resume: StageFlowResume) => {
     if (screen.kind !== 'stage-flow') {
       return
     }
-    applyLiveChange(resume.change)
-    void startStageFlow(screen.stage, { units: screen.units, resume, manualTempo: screen.manualTempo || resume.change.bpm !== settings.bpm })
+    const next = withManualChange(settings, resume.manual)
+    if (next !== settings) {
+      setSettings(next)
+      saveSettings(next)
+    }
+    void startStageFlow(screen.stage, { units: screen.units, resume, manualTempo: screen.manualTempo || resume.manual.bpm !== undefined })
   }
 
   const finishStageFlow = useCallback(
@@ -284,12 +298,10 @@ export default function PracticeApp() {
           next = { ...next, selectedStageId: nextStage.id }
         }
       }
-      if (result.change) {
-        next = { ...next, bpm: result.change.bpm, guide: result.change.guide }
-      }
-      const manualTempo = (screen.kind === 'stage-flow' && screen.manualTempo) || (result.change !== null && result.change.bpm !== settings.bpm)
+      next = withManualChange(next, result.manual)
+      const manualTempo = (screen.kind === 'stage-flow' && screen.manualTempo) || result.manual.bpm !== undefined
       let tempoChange = 0
-      if (settings.autoTempo && !manualTempo) {
+      if (settings.autoTempo && !manualTempo && !result.tempoRaised) {
         const tempo = tempoAfterStage(settings.bpm, result.flow)
         tempoChange = tempo.change
         next = { ...next, bpm: tempo.bpm }
@@ -447,11 +459,13 @@ export default function PracticeApp() {
         stage={screen.stage}
         units={screen.units}
         settings={settings}
+        current={screen.current}
         plan={screen.plan}
         audioStart={screen.audioStart}
         scheduledSlots={screen.scheduledSlots}
         initialFlow={screen.resume?.flow}
         initialLastMetrics={screen.resume?.lastMetrics}
+        initialAutoAdjust={screen.autoAdjust}
         onFinish={(result) => finishStageFlow(screen.stage, result)}
         onRestart={restartStageFlow}
         onCancel={cancel}

@@ -133,6 +133,17 @@ button {
   font-size: 14px;
 }
 
+.check-column {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  align-items: center;
+}
+
+.check-column .small {
+  flex-basis: 100%;
+}
+
 .start-button,
 .primary-button,
 .secondary-button {

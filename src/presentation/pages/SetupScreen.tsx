@@ -329,6 +329,21 @@ export default function SetupScreen({
                     />
                   </OptionRow>
                   )}
+                  {settings.exercise === 'tap' && settings.target === 'stages' && (
+                    <OptionRow label="연습 중">
+                      <div className="check-column">
+                        <label className="check-row">
+                          <input type="checkbox" checked={settings.tempoRamp} onChange={(event) => update('tempoRamp', event.target.checked)} />
+                          템포 올리기
+                        </label>
+                        <label className="check-row">
+                          <input type="checkbox" checked={settings.guideFade} onChange={(event) => update('guideFade', event.target.checked)} />
+                          기준음 줄이기
+                        </label>
+                        <span className="muted small">두 칸 연속 깔끔하면 +5 BPM, 기준음 한 단계 줄임</span>
+                      </div>
+                    </OptionRow>
+                  )}
                 </section>
                 {['strum', 'two-hand', 'polyrhythm'].includes(settings.target) && (
                   <section className="options">
