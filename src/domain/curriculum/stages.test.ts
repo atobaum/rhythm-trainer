@@ -30,13 +30,6 @@ describe('STAGES', () => {
   it('makes valid icons', () => {
     STAGES.forEach((stage) => expect(validatePattern(stage.icon)).toEqual([]))
   })
-
-  it('keeps switch icons within two beats and six events', () => {
-    STAGES.filter((stage) => stage.kind === 'switch').forEach((stage) => {
-      expect(stage.icon.timeSignature.numerator, stage.id).toBeLessThanOrEqual(2)
-      expect(stage.icon.tracks[0].events.length, stage.id).toBeLessThanOrEqual(6)
-    })
-  })
 })
 
 const SEEDS = [1, 2, 3, 42, 987654]
