@@ -1,0 +1,27 @@
+{
+  "id": "gallop",
+  "title": "8분 + 16분 둘 (갤럽)",
+  "timeSignature": { "numerator": 4, "denominator": 4 },
+  "bars": 1,
+  "tags": ["eighth-note", "sixteenth-note"],
+  "difficulty": 3,
+  "tracks": [
+    {
+      "id": "main",
+      "role": "single",
+      "instrument": "tap",
+      "events": [
+        { "id": "a1", "onset": "0", "duration": "1/8", "kind": "note" },
+        { "id": "a2", "onset": "1/8", "duration": "1/16", "kind": "note" },
+        { "id": "a3", "onset": "3/16", "duration": "1/16", "kind": "note" },
+        { "id": "b1", "onset": "1/4", "duration": "1/8", "kind": "note" },
+        { "id": "b2", "onset": "3/8", "duration": "1/16", "kind": "note" },
+        { "id": "b3", "onset": "7/16", "duration": "1/16", "kind": "note" },
+        { "id": "c1", "onset": "1/2", "duration": "1/8", "kind": "note" },
+        { "id": "c2", "onset": "5/8", "duration": "1/16", "kind": "note" },
+        { "id": "c3", "onset": "11/16", "duration": "1/16", "kind": "note" },
+        { "id": "d1", "onset": "3/4", "duration": "1/4", "kind": "note" }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,25 @@
+{
+  "id": "strum-8beat",
+  "title": "기타 8비트 (↓ ↓↑ ↑↓↑)",
+  "timeSignature": { "numerator": 4, "denominator": 4 },
+  "bars": 1,
+  "tags": ["eighth-note", "syncopation", "strumming"],
+  "difficulty": 3,
+  "tracks": [
+    {
+      "id": "main",
+      "role": "single",
+      "instrument": "guitar",
+      "events": [
+        { "id": "s1", "onset": "0", "duration": "1/8", "kind": "note", "strum": { "direction": "down", "motion": "sound" } },
+        { "id": "s2", "onset": "1/8", "duration": "1/8", "kind": "note", "strum": { "direction": "up", "motion": "ghost" } },
+        { "id": "s3", "onset": "1/4", "duration": "1/8", "kind": "note", "strum": { "direction": "down", "motion": "sound" } },
+        { "id": "s4", "onset": "3/8", "duration": "1/8", "kind": "note", "strum": { "direction": "up", "motion": "sound" } },
+        { "id": "s5", "onset": "1/2", "duration": "1/8", "kind": "note", "strum": { "direction": "down", "motion": "ghost" } },
+        { "id": "s6", "onset": "5/8", "duration": "1/8", "kind": "note", "strum": { "direction": "up", "motion": "sound" } },
+        { "id": "s7", "onset": "3/4", "duration": "1/8", "kind": "note", "strum": { "direction": "down", "motion": "sound" } },
+        { "id": "s8", "onset": "7/8", "duration": "1/8", "kind": "note", "strum": { "direction": "up", "motion": "sound" } }
+      ]
+    }
+  ]
+}

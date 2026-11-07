@@ -1,0 +1,24 @@
+{
+  "id": "eighth-notes-with-rests",
+  "title": "8분음표와 쉼표",
+  "timeSignature": { "numerator": 4, "denominator": 4 },
+  "bars": 1,
+  "tags": ["eighth-note", "rest"],
+  "difficulty": 2,
+  "tracks": [
+    {
+      "id": "main",
+      "role": "single",
+      "instrument": "tap",
+      "events": [
+        { "id": "n1", "onset": "0", "duration": "1/8", "kind": "note" },
+        { "id": "r1", "onset": "1/8", "duration": "1/8", "kind": "rest" },
+        { "id": "n2", "onset": "1/4", "duration": "1/8", "kind": "note" },
+        { "id": "n3", "onset": "3/8", "duration": "1/8", "kind": "note" },
+        { "id": "n4", "onset": "1/2", "duration": "1/4", "kind": "note" },
+        { "id": "r2", "onset": "3/4", "duration": "1/8", "kind": "rest" },
+        { "id": "n5", "onset": "7/8", "duration": "1/8", "kind": "note" }
+      ]
+    }
+  ]
+}

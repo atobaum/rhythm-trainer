@@ -1,0 +1,23 @@
+{
+  "id": "syncopation-tie",
+  "title": "붙임줄 싱코페이션",
+  "timeSignature": { "numerator": 4, "denominator": 4 },
+  "bars": 1,
+  "tags": ["eighth-note", "syncopation"],
+  "difficulty": 4,
+  "tracks": [
+    {
+      "id": "main",
+      "role": "single",
+      "instrument": "tap",
+      "events": [
+        { "id": "n1", "onset": "0", "duration": "1/8", "kind": "note" },
+        { "id": "n2", "onset": "1/8", "duration": "1/8", "kind": "note", "tieGroupId": "t1" },
+        { "id": "n3", "onset": "1/4", "duration": "1/8", "kind": "note", "tieGroupId": "t1" },
+        { "id": "n4", "onset": "3/8", "duration": "1/8", "kind": "note" },
+        { "id": "n5", "onset": "1/2", "duration": "1/4", "kind": "note" },
+        { "id": "n6", "onset": "3/4", "duration": "1/4", "kind": "note" }
+      ]
+    }
+  ]
+}
