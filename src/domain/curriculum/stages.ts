@@ -1,6 +1,6 @@
 import { figureById } from '../rhythm/figures.ts'
-import { arrangeBars, iconPattern, patternFromCells, seededRandom } from '../rhythm/generator.ts'
-import type { Cell, GenerationSpec } from '../rhythm/generator.ts'
+import { arrangeBars, iconPattern, patternFromCells, seededRandom, subdivisionOf } from '../rhythm/generator.ts'
+import type { Cell, GenerationSpec, SubdivisionSwitch } from '../rhythm/generator.ts'
 import type { RhythmPattern } from '../rhythm/pattern.ts'
 
 export type Stage = {
@@ -10,7 +10,7 @@ export type Stage = {
   title: string
   subtitle: string
   part: number
-  kind: 'figure' | 'review'
+  kind: 'figure' | 'review' | 'switch'
   figureId: string | null
   introBars: boolean
   barCount: number
@@ -18,11 +18,25 @@ export type Stage = {
   spec: GenerationSpec
 }
 
+const QUARTER = figureById('quarter').cells[0]
 const GENERATED_BARS = 8
 const INTRO_BARS = 2
 const MAXIMUM_REGENERATIONS = 20
 
-type PlanItem = { section: string; figure: string; parts: number } | { section: string; review: number; key: string }
+type PlanItem =
+  | { section: string; figure: string; parts: number }
+  | { section: string; review: number; key: string }
+  | { section: string; switchParts: SwitchPart[] }
+
+// materials 가 null 이면 지금까지 배운 1박 음형을 모두 쓴다.
+type SwitchPart = { title: string; materials: string[] | null; mode: SubdivisionSwitch; icon: string[] }
+
+const SWITCH_PARTS: SwitchPart[] = [
+  { title: '8분과 3연음', materials: ['two-eighths', 'triplet'], mode: 'half', icon: ['two-eighths', 'triplet'] },
+  { title: '8분과 3연음 박마다', materials: ['two-eighths', 'triplet'], mode: 'beat', icon: ['two-eighths', 'triplet'] },
+  { title: '16분과 3연음', materials: ['four-sixteenths', 'triplet'], mode: 'half', icon: ['four-sixteenths', 'triplet'] },
+  { title: '섞기', materials: null, mode: 'mixed', icon: ['two-eighths', 'triplet', 'four-sixteenths'] },
+]
 
 // 3연음은 박을 셋으로 나누기만 하면 되어서 박을 넷으로 나누는 16분음표보다 먼저 배운다.
 const PLAN: PlanItem[] = [
@@ -50,6 +64,7 @@ const PLAN: PlanItem[] = [
   { section: '16분음표', figure: 'two-sixteenths-eighth', parts: 3 },
   { section: '16분음표', figure: 'sixteenth-eighth-sixteenth', parts: 3 },
   { section: '16분음표', review: 3, key: 'sixteenths' },
+  { section: '나눔 바꾸기', switchParts: SWITCH_PARTS },
   { section: '점음표', figure: 'dotted-eighth-sixteenth', parts: 4 },
   { section: '점음표', figure: 'sixteenth-dotted-eighth', parts: 4 },
   { section: '점음표', review: 3, key: 'dotted' },
@@ -112,6 +127,34 @@ function buildStages(): Stage[] {
           spec: { id, title: figure.label, features: figure.cells, fillers, featuresPerBar: shape.featuresPerBar, bars: shape.bars, beatsPerBar: 4 },
         })
       }
+    } else if ('switchParts' in item) {
+      const oneBeatSplits = learned.filter((cell) => cell.beats === 1 && subdivisionOf(cell) !== 'basic')
+      item.switchParts.forEach((switchPart, index) => {
+        const part = index + 1
+        const id = `switch-${part}`
+        stages.push({
+          id,
+          section: item.section,
+          title: `${switchPart.title} (${part}부)`,
+          subtitle: `${GENERATED_BARS}마디`,
+          part,
+          kind: 'switch',
+          figureId: null,
+          introBars: false,
+          barCount: GENERATED_BARS,
+          icon: iconPattern(id, switchPart.icon.map((figureId) => figureById(figureId).cells[0])),
+          spec: {
+            id,
+            title: switchPart.title,
+            features: switchPart.materials?.map((figureId) => figureById(figureId).cells[0]) ?? oneBeatSplits,
+            fillers: [QUARTER],
+            featuresPerBar: 4,
+            bars: 2,
+            beatsPerBar: 4,
+            subdivisionSwitch: switchPart.mode,
+          },
+        })
+      })
     } else {
       const recent = learnedFigures.slice(-2).map((id) => figureById(id).cells[0])
       const iconCells = recent.reduce<Cell[]>((cells, cell) => (cells.reduce((sum, c) => sum + c.beats, 0) + cell.beats <= 3 ? [...cells, cell] : cells), [])
@@ -144,8 +187,6 @@ function buildStages(): Stage[] {
 }
 
 export const STAGES: Stage[] = buildStages()
-
-const QUARTER = figureById('quarter').cells[0]
 
 function introBarCells(stage: Stage): Cell[][] {
   const figureCells = figureById(stage.figureId!).cells

@@ -71,7 +71,7 @@ type: design
 | 2 | 타이밍 판정 | 시계 동기화, 이벤트 매칭, 판정, 지표 | [[timing-judgement]] | implementing |
 | 3 | 읽기·모방 연습 | 악보 보고 치기, 듣고 따라 치기와 공통 연습 상태 | [[reading-imitation]] | implementing |
 | 4 | 연습 화면·실시간 피드백 | 악보, 타이밍 트랙, 탭 영역, 자동 템포, 결과 화면 | [[practice-screen]] | implementing |
-| 5 | 커리큘럼·자유 연습 | 음형별 110단계와 진도, 도입 마디와 매번 새로 만드는 마디 흐름, 고정·스트로크·양손·폴리리듬 목록 | [[curriculum]] | done |
+| 5 | 커리큘럼·자유 연습 | 음형별 114단계와 진도, 도입 마디와 매번 새로 만드는 마디 흐름, 고정·스트로크·양손·폴리리듬 목록 | [[curriculum]] | done |
 | 6 | 빠른 연습 | 원탭 시작, 연습 시간 설정, 자동 큐레이션 | [[quick-practice]] | done |
 | 7 | 리듬 청음 | 듣고 악보 고르기·완성하기 | [[dictation]] | done |
 | 8 | 기타 스트로크 | 다운·업·헛스트로크 패턴 | [[guitar-strumming]] | done |
