@@ -22,3 +22,6 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# 세션 인수인계 문서. 로컬에만 둔다
+HANDOFF.md

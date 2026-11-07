@@ -68,4 +68,4 @@ pnpm lint    # oxlint
 - 기능별 정의와 완료 기준 `docs/features/`
 - 결정 기록 [[decisions]]
 - 아이디어와 미룬 작업 [[TODOS]]
-- 세션 인수인계 [[HANDOFF]]
+- 세션 인수인계 `HANDOFF.md`. 로컬에만 두고 git 에 올리지 않는다
