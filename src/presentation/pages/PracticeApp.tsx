@@ -30,10 +30,12 @@ import CalibrationScreen from './CalibrationScreen.tsx'
 import DictationScreen from './DictationScreen.tsx'
 import ResultScreen from './ResultScreen.tsx'
 import SessionScreen from './SessionScreen.tsx'
-import type { SessionResult } from './SessionScreen.tsx'
+import type { LoopResume, SessionResult } from './SessionScreen.tsx'
+import type { LiveChange } from '../components/LiveControls.tsx'
 import SetupScreen from './SetupScreen.tsx'
+import { useBackToHome } from '../hooks/use-back-to-home.ts'
 import StageFlowScreen from './StageFlowScreen.tsx'
-import type { StageFlowResult } from './StageFlowScreen.tsx'
+import type { StageFlowResult, StageFlowResume } from './StageFlowScreen.tsx'
 import type { SetupTab } from './SetupScreen.tsx'
 import SummaryScreen from './SummaryScreen.tsx'
 import type { PatternOutcome } from './SummaryScreen.tsx'
@@ -61,10 +63,20 @@ type Queue = {
 
 type Screen =
   | { kind: 'setup' }
-  | { kind: 'session'; attempt: number; plan: LoopPlan; audioStart: number; pattern: RhythmPattern }
+  | { kind: 'session'; attempt: number; plan: LoopPlan; audioStart: number; pattern: RhythmPattern; priorCleanFlags: boolean[]; manualTempo: boolean }
   | { kind: 'result'; result: SessionResult; stars: number; record: RecordUpdate | null; tempoChange: number; pattern: RhythmPattern }
   | { kind: 'summary' }
-  | { kind: 'stage-flow'; attempt: number; stage: Stage; units: RhythmPattern[]; plan: BarFlowPlan; audioStart: number }
+  | {
+      kind: 'stage-flow'
+      attempt: number
+      stage: Stage
+      units: RhythmPattern[]
+      plan: BarFlowPlan
+      audioStart: number
+      scheduledSlots: number
+      resume: StageFlowResume | null
+      manualTempo: boolean
+    }
   | { kind: 'stage-summary'; stage: Stage; result: StageFlowResult; tempoChange: number }
   | { kind: 'calibration'; attempt: number; audioStart: number }
   | { kind: 'dictation'; attempt: number; stage: Stage; seed: number }
@@ -152,8 +164,16 @@ export default function PracticeApp() {
   const [screen, setScreen] = useState<Screen>({ kind: 'setup' })
   const [notice, setNotice] = useState<string | null>(null)
   const [setupTab, setSetupTab] = useState<SetupTab>('practice')
+  const [sheetOpen, setSheetOpen] = useState(false)
   const [queue, setQueue] = useState<Queue | null>(null)
   const attemptRef = useRef(0)
+
+  useBackToHome(screen.kind === 'setup' && setupTab === 'practice' && !sheetOpen, () => {
+    audioEngine.stop()
+    setSheetOpen(false)
+    setSetupTab('practice')
+    setScreen({ kind: 'setup' })
+  })
 
   const changeSettings = (next: StoredSettings) => {
     setSettings(next)
@@ -171,12 +191,13 @@ export default function PracticeApp() {
     }
   }
 
-  const play = async (pattern: RhythmPattern, bpm: number) => {
+  const play = async (pattern: RhythmPattern, bpm: number, resume: { resume: LoopResume; manualTempo: boolean } | null = null) => {
     if (!(await unlockAudio())) {
       return
     }
-    const played = pattern.tracks.length > 1 && settings.handFocus !== 'both' ? singleHand(pattern, settings.handFocus) : pattern
-    const plan = buildLoopPlan(played, { mode: settings.mode, bpm, guide: settings.guide })
+    const played = resume ? pattern : pattern.tracks.length > 1 && settings.handFocus !== 'both' ? singleHand(pattern, settings.handFocus) : pattern
+    const guide = resume ? resume.resume.change.guide : settings.guide
+    const plan = buildLoopPlan(played, { mode: settings.mode, bpm, guide, skipPreview: resume !== null })
     const firstRepetitions = Array.from({ length: INITIAL_SCHEDULED_REPETITIONS }, (_, repetition) =>
       plan.soundsForRepetition(repetition),
     ).flat()
@@ -187,16 +208,39 @@ export default function PracticeApp() {
       plan,
       pattern: played,
       audioStart: audioEngine.playSession([...plan.introSounds, ...firstRepetitions]),
+      priorCleanFlags: resume?.resume.cleanFlags ?? [],
+      manualTempo: resume?.manualTempo ?? false,
     })
   }
 
-  const startStageFlow = async (stage: Stage) => {
+  const applyLiveChange = (change: LiveChange) => {
+    const next = { ...settings, bpm: change.bpm, guide: change.guide }
+    setSettings(next)
+    saveSettings(next)
+  }
+
+  const restartLoop = (resume: LoopResume) => {
+    if (screen.kind !== 'session') {
+      return
+    }
+    applyLiveChange(resume.change)
+    void play(screen.pattern, resume.change.bpm, { resume, manualTempo: screen.manualTempo || resume.change.bpm !== settings.bpm })
+  }
+
+  const startStageFlow = async (
+    stage: Stage,
+    continuing: { units: RhythmPattern[]; resume: StageFlowResume; manualTempo: boolean } | null = null,
+  ) => {
     if (!(await unlockAudio())) {
       return
     }
-    const units = stageUnits(stage, Math.floor(Math.random() * 1e9))
-    const plan = buildBarFlowPlan(stage.spec.beatsPerBar, BARS_PER_UNIT, { mode: settings.mode, bpm: settings.bpm, guide: settings.guide })
-    const firstSlots = plan.slotsForUnit(0, true)
+    const units = continuing?.units ?? stageUnits(stage, Math.floor(Math.random() * 1e9))
+    const bpm = continuing?.resume.change.bpm ?? settings.bpm
+    const guide = continuing?.resume.change.guide ?? settings.guide
+    const plan = buildBarFlowPlan(stage.spec.beatsPerBar, BARS_PER_UNIT, { mode: settings.mode, bpm, guide })
+    const flow = continuing?.resume.flow
+    const startUnit = flow?.index ?? 0
+    const firstSlots = plan.slotsForUnit(startUnit, flow === undefined || flow.attempts[startUnit] === 0)
     attemptRef.current += 1
     setScreen({
       kind: 'stage-flow',
@@ -206,9 +250,20 @@ export default function PracticeApp() {
       plan,
       audioStart: audioEngine.playSession([
         ...plan.countInSounds,
-        ...firstSlots.flatMap((flowSlot, slot) => plan.soundsForSlot(slot, flowSlot, units[0])),
+        ...firstSlots.flatMap((flowSlot, slot) => plan.soundsForSlot(slot, flowSlot, units[startUnit])),
       ]),
+      scheduledSlots: firstSlots.length,
+      resume: continuing?.resume ?? null,
+      manualTempo: continuing?.manualTempo ?? false,
     })
+  }
+
+  const restartStageFlow = (resume: StageFlowResume) => {
+    if (screen.kind !== 'stage-flow') {
+      return
+    }
+    applyLiveChange(resume.change)
+    void startStageFlow(screen.stage, { units: screen.units, resume, manualTempo: screen.manualTempo || resume.change.bpm !== settings.bpm })
   }
 
   const finishStageFlow = useCallback(
@@ -224,8 +279,12 @@ export default function PracticeApp() {
           next = { ...next, selectedStageId: nextStage.id }
         }
       }
+      if (result.change) {
+        next = { ...next, bpm: result.change.bpm, guide: result.change.guide }
+      }
+      const manualTempo = (screen.kind === 'stage-flow' && screen.manualTempo) || (result.change !== null && result.change.bpm !== settings.bpm)
       let tempoChange = 0
-      if (settings.autoTempo) {
+      if (settings.autoTempo && !manualTempo) {
         const tempo = tempoAfterStage(settings.bpm, result.flow)
         tempoChange = tempo.change
         next = { ...next, bpm: tempo.bpm }
@@ -236,7 +295,7 @@ export default function PracticeApp() {
       }
       setScreen({ kind: 'stage-summary', stage, result, tempoChange })
     },
-    [settings],
+    [settings, screen],
   )
 
   const startDictation = (stage: Stage) => {
@@ -300,15 +359,17 @@ export default function PracticeApp() {
         const history = [...quick.history, { stageId: patternStage?.id ?? pattern.id, patternId: pattern.id, skillKey, score }]
         quick = { ...quick, activeMs: quick.activeMs + result.repetitionsPlayed * result.patternMs, history }
       }
+      const manualTempo = (screen.kind === 'session' && screen.manualTempo) || (result.change !== null && result.change.bpm !== settings.bpm)
+      let next = result.change ? { ...settings, bpm: result.change.bpm, guide: result.change.guide } : settings
       let tempoChange = 0
-      if (settings.autoTempo) {
+      if (settings.autoTempo && !manualTempo) {
         const tempo = tempoAfterLoop(settings.bpm, result.passed ? result.repetitionsPlayed : null)
         tempoChange = tempo.change
-        if (tempo.change !== 0) {
-          const next = { ...settings, bpm: tempo.bpm }
-          setSettings(next)
-          saveSettings(next)
-        }
+        next = { ...next, bpm: tempo.bpm }
+      }
+      if (next.bpm !== settings.bpm || next.guide !== settings.guide) {
+        setSettings(next)
+        saveSettings(next)
       }
       const outcomes = [...queue.outcomes]
       outcomes[queue.index] = {
@@ -383,8 +444,11 @@ export default function PracticeApp() {
         settings={settings}
         plan={screen.plan}
         audioStart={screen.audioStart}
-        scheduledSlots={screen.plan.slotsForUnit(0, true).length}
+        scheduledSlots={screen.scheduledSlots}
+        initialFlow={screen.resume?.flow}
+        initialLastMetrics={screen.resume?.lastMetrics}
         onFinish={(result) => finishStageFlow(screen.stage, result)}
+        onRestart={restartStageFlow}
         onCancel={cancel}
       />
     )
@@ -434,7 +498,9 @@ export default function PracticeApp() {
             ? `${queue.labels[queue.index]} · ${Math.floor((queue.quick?.activeMs ?? 0) / MILLISECONDS_PER_MINUTE)}분`
             : currentPattern.title
         }
+        priorCleanFlags={screen.priorCleanFlags}
         onFinish={finish}
+        onRestart={restartLoop}
         onCancel={cancel}
       />
     )
@@ -523,6 +589,8 @@ export default function PracticeApp() {
       onCalibrate={calibrate}
       tab={setupTab}
       onTabChange={setSetupTab}
+      sheetOpen={sheetOpen}
+      onSheetChange={setSheetOpen}
     />
   )
 }

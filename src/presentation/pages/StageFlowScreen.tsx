@@ -1,22 +1,26 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { evaluateSlot, tapsInSlot } from '../../application/bar-flow-evaluation.ts'
 import type { BarFlowPlan, FlowSlot } from '../../application/bar-flow-plan.ts'
-import { DEFAULT_WINDOWS } from '../../domain/evaluation/matcher.ts'
+import { DEFAULT_WINDOWS, judgementTimeMs } from '../../domain/evaluation/matcher.ts'
 import type { Judgement, Tap } from '../../domain/evaluation/matcher.ts'
 import type { PracticeMetrics } from '../../domain/evaluation/metrics.ts'
 import { createBarFlow, recordBar } from '../../domain/practice/bar-flow.ts'
 import type { ExpectedEvent } from '../../domain/rhythm/event-generator.ts'
 import type { BarFlow, BarOutcome } from '../../domain/practice/bar-flow.ts'
 import type { Stage } from '../../domain/curriculum/stages.ts'
+import { splitIntoBars } from '../../domain/rhythm/pattern.ts'
 import type { RhythmPattern } from '../../domain/rhythm/pattern.ts'
 import { audioEngine } from '../../infrastructure/audio/audio-engine.ts'
 import ErrorMeter from '../components/ErrorMeter.tsx'
+import LiveControls from '../components/LiveControls.tsx'
+import type { LiveChange } from '../components/LiveControls.tsx'
+import ScoreRows from '../components/ScoreRows.tsx'
 import ScoreView from '../components/ScoreView.tsx'
-import type { PositionToX } from '../components/ScoreView.tsx'
 import TimingTrack from '../components/TimingTrack.tsx'
 import { useAudioClock } from '../hooks/use-audio-clock.ts'
+import { useNarrowScreen } from '../hooks/use-narrow-screen.ts'
 import type { StoredSettings } from '../practice-settings.ts'
-import { tapZonesFor, zoneForKey } from '../tap-zones.ts'
+import { tapSoundKind, tapZonesFor, zoneForKey } from '../tap-zones.ts'
 import type { TapZone } from '../tap-zones.ts'
 
 export type StageFlowResult = {
@@ -24,6 +28,13 @@ export type StageFlowResult = {
   units: RhythmPattern[]
   bpm: number
   lastMetrics: (PracticeMetrics | null)[]
+  change: LiveChange | null
+}
+
+export type StageFlowResume = {
+  flow: BarFlow
+  lastMetrics: (PracticeMetrics | null)[]
+  change: LiveChange
 }
 
 type Props = {
@@ -33,7 +44,10 @@ type Props = {
   plan: BarFlowPlan
   audioStart: number
   scheduledSlots: number
+  initialFlow?: BarFlow
+  initialLastMetrics?: (PracticeMetrics | null)[]
   onFinish: (result: StageFlowResult) => void
+  onRestart: (resume: StageFlowResume) => void
   onCancel: (reason?: string) => void
 }
 
@@ -52,6 +66,8 @@ type FlowInput = {
   skippedSlots: Set<number>
   scoringOriginMs: number
   nowMs: number
+  initialFlow?: BarFlow
+  initialLastMetrics?: (PracticeMetrics | null)[]
 }
 
 function absoluteExpected(input: FlowInput, slot: number, unitIndex: number): ExpectedEvent[] {
@@ -67,10 +83,10 @@ function slotWindow(input: FlowInput, slot: number) {
 // 마디 결과는 탭, 시각, 건너뛰기만으로 정해지므로 저장하지 않고 매번 처음 칸부터 다시 계산한다.
 function deriveFlow(input: FlowInput): FlowState {
   const { units, plan } = input
-  let flow = createBarFlow(units.length)
-  const slots: FlowSlot[] = plan.slotsForUnit(0, true)
+  let flow = input.initialFlow ?? createBarFlow(units.length)
+  const slots: FlowSlot[] = plan.slotsForUnit(flow.index, flow.attempts[flow.index] === 0)
   const decisions: Record<number, BarOutcome> = {}
-  const lastMetrics: (PracticeMetrics | null)[] = new Array(units.length).fill(null)
+  const lastMetrics: (PracticeMetrics | null)[] = input.initialLastMetrics ? [...input.initialLastMetrics] : new Array(units.length).fill(null)
   let slot = slots.length - 1
   for (;;) {
     let outcome: BarOutcome
@@ -118,7 +134,19 @@ function outcomeMessage(outcome: BarOutcome | undefined, metrics: PracticeMetric
   return `다시 · 평균 오차 ${Math.round(metrics?.meanAbsoluteErrorMs ?? 0)}ms`
 }
 
-export default function StageFlowScreen({ stage, units, settings, plan, audioStart, scheduledSlots, onFinish, onCancel }: Props) {
+export default function StageFlowScreen({
+  stage,
+  units,
+  settings,
+  plan,
+  audioStart,
+  scheduledSlots,
+  initialFlow,
+  initialLastMetrics,
+  onFinish,
+  onRestart,
+  onCancel,
+}: Props) {
   const [taps, setTaps] = useState<Tap[]>([])
   const [skippedSlots, setSkippedSlots] = useState<Set<number>>(() => new Set())
   const finishedRef = useRef(false)
@@ -127,10 +155,11 @@ export default function StageFlowScreen({ stage, units, settings, plan, audioSta
   const { nowMs } = clock
   const scoringOriginMs = clock.originMs + settings.latencyOffsetMs
   const zones = useMemo(() => tapZonesFor(units[0], settings.strumInput === 'split'), [units, settings.strumInput])
-  const [positionToX, setPositionToX] = useState<PositionToX>(() => (position: number) => position)
-  const handleScoreLayout = useCallback((mapping: PositionToX) => setPositionToX(() => mapping), [])
+  const narrow = useNarrowScreen()
+  const [liveChange, setLiveChange] = useState<LiveChange | null>(null)
+  const [changeSlot, setChangeSlot] = useState<number | null>(null)
 
-  const flowInput: FlowInput = { units, plan, taps, skippedSlots, scoringOriginMs, nowMs }
+  const flowInput: FlowInput = { units, plan, taps, skippedSlots, scoringOriginMs, nowMs, initialFlow, initialLastMetrics }
   const state = deriveFlow(flowInput)
   const { pendingSlot } = state
 
@@ -146,12 +175,24 @@ export default function StageFlowScreen({ stage, units, settings, plan, audioSta
   useEffect(() => {
     if (state.flow.finished && !finishedRef.current) {
       finishedRef.current = true
-      onFinish({ flow: state.flow, units, bpm: settings.bpm, lastMetrics: state.lastMetrics })
+      onFinish({ flow: state.flow, units, bpm: settings.bpm, lastMetrics: state.lastMetrics, change: liveChange })
     }
-  }, [state.flow, state.lastMetrics, units, settings.bpm, onFinish])
+  }, [state.flow, state.lastMetrics, units, settings.bpm, onFinish, liveChange])
+
+  // 바꾼 설정은 요청할 때 치던 칸의 판정이 끝나면 세션을 새로 시작해 적용한다.
+  const restartDue = liveChange !== null && changeSlot !== null && state.decisions[changeSlot] !== undefined && nowMs - clock.originMs >= plan.decisionMs(changeSlot)
+  useEffect(() => {
+    if (restartDue && liveChange && !state.flow.finished && !finishedRef.current) {
+      finishedRef.current = true
+      onRestart({ flow: state.flow, lastMetrics: state.lastMetrics, change: liveChange })
+    }
+  }, [restartDue, liveChange, state.flow, state.lastMetrics, onRestart])
 
   const recordTap = useCallback(
     (timeMs: number, zone: TapZone) => {
+      if (settings.tapSound) {
+        audioEngine.playNow(tapSoundKind(zone))
+      }
       if (finishedRef.current || timeMs - clock.originMs < plan.firstSlotMs - DEFAULT_WINDOWS.goodMs) {
         return
       }
@@ -160,7 +201,7 @@ export default function StageFlowScreen({ stage, units, settings, plan, audioSta
         { id: `tap${previous.length}`, timeMs, trackId: zone.trackId, ...(zone.direction ? { direction: zone.direction } : {}) },
       ])
     },
-    [clock.originMs, plan],
+    [clock.originMs, plan, settings.tapSound],
   )
 
   useEffect(() => {
@@ -206,6 +247,9 @@ export default function StageFlowScreen({ stage, units, settings, plan, audioSta
   const previewLabelFor = () =>
     previewUnitIndex === null ? '마지막 마디예요' : decidedPreview === shownUnitIndex ? (state.decisions[playSlotOfShown] === 'clean' ? '한 번 더' : '다시') : `다음 · ${barRange(previewUnitIndex)}`
 
+  const previewUnit = previewUnitIndex === null ? null : units[previewUnitIndex]
+  const previewPattern = previewUnit === null ? null : narrow ? (splitIntoBars(previewUnit)?.[0] ?? previewUnit) : previewUnit
+
   const shownExpected = absoluteExpected(flowInput, shownSlot, shownUnitIndex)
   const shownEvaluation = evaluateSlot(shownExpected, taps, slotWindow(flowInput, shownSlot), nowMs)
   const judgements: Judgement[] = !countingIn && !listening ? shownEvaluation.judgements : []
@@ -223,7 +267,7 @@ export default function StageFlowScreen({ stage, units, settings, plan, audioSta
 
   const attemptsHere = Object.keys(state.decisions)
     .map(Number)
-    .filter((slot) => slot < shownSlot && state.slots[slot].unitIndex === shownUnitIndex).length
+    .filter((slot) => slot < shownSlot && state.slots[slot].unitIndex === shownUnitIndex).length + (initialFlow?.attempts[shownUnitIndex] ?? 0)
   const lastDecidedSlot = Math.max(-1, ...Object.keys(state.decisions).map(Number).filter((slot) => slot <= shownSlot))
   const lastOutcome = lastDecidedSlot >= 0 ? state.decisions[lastDecidedSlot] : undefined
   const lastAdvanced = lastDecidedSlot >= 0 && state.slots[lastDecidedSlot + 1]?.unitIndex !== state.slots[lastDecidedSlot].unitIndex
@@ -255,6 +299,15 @@ export default function StageFlowScreen({ stage, units, settings, plan, audioSta
           건너뛰기 →
         </button>
       </header>
+      <LiveControls
+        current={{ bpm: settings.bpm, guide: settings.guide }}
+        pending={liveChange}
+        untilLabel="다음 두 마디"
+        onChange={(next) => {
+          setLiveChange(next)
+          setChangeSlot((previous) => (next === null ? null : (previous ?? (listening ? shownSlot + 1 : shownSlot))))
+        }}
+      />
 
       <div className={`session-status ${countingIn ? 'session-count' : ''}`}>{status}</div>
       <div className="loop-progress">
@@ -270,29 +323,35 @@ export default function StageFlowScreen({ stage, units, settings, plan, audioSta
       <p className="muted small flow-message">{outcomeMessage(lastOutcome, lastOutcomeMetrics, lastAdvanced)}</p>
 
       <section className="session-score">
-        <ScoreView
+        <ScoreRows
           pattern={shownUnit}
           hidden={hideScore}
-          cursorX={hideScore || cursor === null ? null : positionToX(cursor)}
-          onLayout={handleScoreLayout}
+          cursor={cursor}
+          renderTracks={(row) =>
+            trackIds.map((trackId) => (
+              <div key={trackId} className={trackIds.length > 1 ? 'hand-track' : undefined}>
+                {trackIds.length > 1 && <span className="hand-label">{trackId === 'left' ? 'L' : 'R'}</span>}
+                <TimingTrack
+                  beats={row.beats}
+                  targets={targets.filter((event) => event.trackId === trackId && row.contains(positionOf(event.targetTimeMs)))}
+                  judgements={judgements.filter(
+                    (judgement) => judgementTrack(judgement) === trackId && row.contains(positionOf(judgementTimeMs(judgement))),
+                  )}
+                  pendingTapPositions={pendingTaps
+                    .filter((tap) => tap.trackId === trackId && row.contains(positionOf(tap.timeMs)))
+                    .map((tap) => row.toX(positionOf(tap.timeMs)))}
+                  positionOf={(timeMs) => row.toX(positionOf(timeMs))}
+                  cursor={row.cursor === null || listening ? null : row.toX(row.cursor)}
+                />
+              </div>
+            ))
+          }
         />
-        {trackIds.map((trackId) => (
-          <div key={trackId} className={trackIds.length > 1 ? 'hand-track' : undefined}>
-            {trackIds.length > 1 && <span className="hand-label">{trackId === 'left' ? 'L' : 'R'}</span>}
-            <TimingTrack
-              targets={targets.filter((event) => event.trackId === trackId)}
-              judgements={judgements.filter((judgement) => judgementTrack(judgement) === trackId)}
-              pendingTapPositions={pendingTaps.filter((tap) => tap.trackId === trackId).map((tap) => positionToX(positionOf(tap.timeMs)))}
-              positionOf={(timeMs) => positionToX(positionOf(timeMs))}
-              cursor={cursor === null || listening ? null : positionToX(cursor)}
-            />
-          </div>
-        ))}
-        <ErrorMeter recent={recentTaps} />
-        <div className={`bar-preview ${decidedPreview === shownUnitIndex ? 'bar-preview-retry' : ''}`}>
+        <div className={`bar-preview ${narrow ? 'bar-preview-compact' : ''} ${decidedPreview === shownUnitIndex ? 'bar-preview-retry' : ''}`}>
           <span className="bar-preview-label">{previewLabelFor()}</span>
-          {previewUnitIndex !== null && !hideScore && <ScoreView pattern={units[previewUnitIndex]} />}
+          {previewPattern !== null && !hideScore && <ScoreView pattern={previewPattern} />}
         </div>
+        <ErrorMeter recent={recentTaps} />
       </section>
 
       <div className="tap-zones">

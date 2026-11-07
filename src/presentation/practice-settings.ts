@@ -25,6 +25,7 @@ export type StoredSettings = {
   polyrhythm: [number, number]
   polyrhythmPatternId: string
   handFocus: 'both' | 'left' | 'right'
+  tapSound: boolean
 }
 
 const STORAGE_KEY = 'rhythm-lab.settings.v1'
@@ -50,6 +51,7 @@ export const DEFAULT_SETTINGS: StoredSettings = {
   polyrhythm: [2, 3],
   polyrhythmPatternId: '',
   handFocus: 'both',
+  tapSound: true,
 }
 
 export function loadSettings(): StoredSettings {

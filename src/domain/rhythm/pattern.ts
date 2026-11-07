@@ -5,6 +5,7 @@ import {
   formatFraction,
   isNormalizedFraction,
   parseFraction,
+  subtractFractions,
 } from './fraction.ts'
 import type { Fraction } from './fraction.ts'
 
@@ -65,6 +66,48 @@ function isPositiveInteger(value: number): boolean {
 export function patternLength(pattern: RhythmPattern): Fraction {
   const { numerator, denominator } = pattern.timeSignature
   return createFraction(pattern.bars * numerator, denominator)
+}
+
+// 이벤트나 붙임줄·잇단음표 묶음이 마디선을 넘으면 마디별로 따로 그릴 수 없어서 null 을 돌려준다.
+export function splitIntoBars(pattern: RhythmPattern): RhythmPattern[] | null {
+  const barLength = createFraction(pattern.timeSignature.numerator, pattern.timeSignature.denominator)
+  const barStart = (bar: number) => createFraction(bar * barLength.numerator, barLength.denominator)
+  const barOf = (event: RhythmEvent) => {
+    let bar = 0
+    while (bar + 1 < pattern.bars && compareFractions(event.onset, barStart(bar + 1)) >= 0) {
+      bar++
+    }
+    return bar
+  }
+  const groupBars = new Map<string, number>()
+  for (const track of pattern.tracks) {
+    for (const event of track.events) {
+      const bar = barOf(event)
+      if (compareFractions(eventEnd(event), barStart(bar + 1)) > 0) {
+        return null
+      }
+      for (const group of [event.notation.tieGroupId, event.notation.tupletGroup]) {
+        const key = `${track.id}:${group}`
+        if (group !== undefined && (groupBars.get(key) ?? bar) !== bar) {
+          return null
+        }
+        if (group !== undefined) {
+          groupBars.set(key, bar)
+        }
+      }
+    }
+  }
+  return Array.from({ length: pattern.bars }, (_, bar) => ({
+    ...pattern,
+    id: `${pattern.id}-bar${bar + 1}`,
+    bars: 1,
+    tracks: pattern.tracks.map((track) => ({
+      ...track,
+      events: track.events
+        .filter((event) => barOf(event) === bar)
+        .map((event) => ({ ...event, onset: subtractFractions(event.onset, barStart(bar)) })),
+    })),
+  }))
 }
 
 function eventEnd(event: RhythmEvent): Fraction {

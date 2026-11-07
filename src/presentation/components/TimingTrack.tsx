@@ -2,7 +2,10 @@ import type { Judgement } from '../../domain/evaluation/matcher.ts'
 import type { ExpectedEvent } from '../../domain/rhythm/event-generator.ts'
 import { MARK_SYMBOLS, markOf } from './judgement-style.ts'
 
+export type BeatMark = { x: number; label: string }
+
 type Props = {
+  beats?: BeatMark[]
   targets: ExpectedEvent[]
   judgements: Judgement[]
   pendingTapPositions?: number[]
@@ -12,9 +15,14 @@ type Props = {
 
 const clamp = (value: number) => Math.min(1, Math.max(0, value))
 
-export default function TimingTrack({ targets, judgements, pendingTapPositions = [], positionOf, cursor = null }: Props) {
+export default function TimingTrack({ beats = [], targets, judgements, pendingTapPositions = [], positionOf, cursor = null }: Props) {
   return (
     <div className="timing-track">
+      {beats.map((beat) => (
+        <div key={beat.x} className="timing-beat" style={{ left: `${clamp(beat.x) * 100}%` }}>
+          <span className="timing-beat-label">{beat.label}</span>
+        </div>
+      ))}
       {targets.map((target) => (
         <div key={target.id} className="timing-target" style={{ left: `${clamp(positionOf(target.targetTimeMs)) * 100}%` }} />
       ))}

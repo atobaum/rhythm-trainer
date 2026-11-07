@@ -1071,3 +1071,261 @@ button {
 .bar-preview-retry .bar-preview-label {
   color: var(--accent);
 }
+
+.session-header .link-button {
+  white-space: nowrap;
+}
+
+.bar-preview-compact .score {
+  width: 60%;
+  min-height: 0;
+}
+
+@media (max-width: 600px) {
+  .session-header {
+    flex-wrap: wrap;
+    row-gap: 4px;
+  }
+
+  .session-header > .muted {
+    order: 3;
+    flex-basis: 100%;
+    text-align: center;
+  }
+}
+
+.timing-beat {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-left: 1px dashed var(--line);
+}
+
+.timing-beat-label {
+  position: absolute;
+  bottom: 1px;
+  left: 3px;
+  font-size: 10px;
+  line-height: 1;
+  color: var(--muted);
+}
+
+.setup-practice {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  padding-bottom: 0;
+}
+
+.setup-practice .setup-header .app-title {
+  font-size: 22px;
+  margin: 0;
+}
+
+.setup-practice .quick-card {
+  margin: 8px 0;
+  padding: 8px 12px;
+}
+
+.setup-practice .quick-text .small {
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.setup-practice .quick-text {
+  min-width: 0;
+  flex: 1;
+}
+
+.setup-scroll {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
+
+.setup-practice .stage-list {
+  flex: 1;
+  min-height: 0;
+  max-height: none;
+}
+
+.setup-bar {
+  display: grid;
+  gap: 8px;
+  padding: 8px 0 max(12px, env(safe-area-inset-bottom));
+  border-top: 1px solid var(--line);
+  background: var(--background);
+}
+
+.setup-bar .target-switch {
+  margin: 0;
+}
+
+.setup-bar .target-switch .choice {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.setup-bar .choice-item {
+  flex: none;
+  padding: 6px 12px;
+}
+
+.setup-bar .start-button {
+  position: static;
+  margin: 0;
+}
+
+.option-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.option-summary > span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.option-summary > span:last-child {
+  flex: none;
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  background: rgb(0 0 0 / 0.35);
+}
+
+.sheet {
+  width: 100%;
+  max-width: 760px;
+  max-height: 80dvh;
+  overflow-y: auto;
+  padding: 12px 16px max(16px, env(safe-area-inset-bottom));
+  border-radius: 16px 16px 0 0;
+  background: var(--background);
+}
+
+.sheet-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.live-controls {
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  padding: 0 16px;
+}
+
+.live-summary {
+  padding: 4px 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--background);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.live-pending {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.live-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.live-row .secondary-button {
+  padding: 6px 14px;
+}
+
+.live-guide {
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--background);
+  font: inherit;
+}
+
+.session-score {
+  flex: 0 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+@media (max-width: 600px) {
+  .session-header {
+    padding: 6px 16px;
+    font-size: 13px;
+  }
+
+  .session-status {
+    font-size: 17px;
+    min-height: 24px;
+  }
+
+  .session-count {
+    font-size: 26px;
+  }
+
+  .flow-message {
+    margin: 2px 0;
+  }
+
+  .session-score {
+    gap: 4px;
+    padding: 4px 16px;
+  }
+
+  .error-meter-label {
+    font-size: 14px;
+    min-height: 18px;
+  }
+
+  .error-meter-bar {
+    height: 16px;
+  }
+
+  .tap-zones {
+    min-height: 120px;
+    margin: 8px 16px 12px;
+  }
+
+  .tap-area {
+    min-height: 120px;
+  }
+
+  .bar-preview-compact .score {
+    width: 100%;
+    transform: scale(0.7);
+    transform-origin: left top;
+    margin-bottom: -32px;
+  }
+}

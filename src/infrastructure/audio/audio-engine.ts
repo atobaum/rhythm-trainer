@@ -17,6 +17,8 @@ const VOICES: Record<SoundKind, Voice> = {
   'strum-down': { frequency: 180, endFrequency: 90, type: 'sawtooth', gain: 0.35, lengthSec: 0.2 },
   'strum-up': { frequency: 420, endFrequency: 260, type: 'sawtooth', gain: 0.22, lengthSec: 0.12 },
   tap: { frequency: 700, endFrequency: 420, type: 'square', gain: 0.3, lengthSec: 0.07 },
+  'tap-low': { frequency: 450, endFrequency: 270, type: 'square', gain: 0.3, lengthSec: 0.07 },
+  'tap-high': { frequency: 1000, endFrequency: 600, type: 'square', gain: 0.25, lengthSec: 0.07 },
 }
 
 const SCHEDULE_LEAD_SEC = 0.3
@@ -60,6 +62,12 @@ export class AudioEngine {
     for (const sound of sounds) {
       this.scheduleVoice(output, sound.kind, this.sessionStartTime + sound.timeMs / 1000, sound.stressed === true)
     }
+  }
+
+  // 세션 출력에 연결하면 세션을 멈출 때 막 낸 탭 소리까지 끊긴다.
+  playNow(kind: SoundKind): void {
+    const context = this.getContext()
+    this.scheduleVoice(context.destination, kind, context.currentTime, false)
   }
 
   sessionElapsedMs(): number {
