@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { parsePattern } from '../domain/rhythm/pattern.ts'
-import { evaluateSlot } from './bar-flow-evaluation.ts'
+import { decidedVerdict, evaluateSlot } from './bar-flow-evaluation.ts'
 import { buildBarFlowPlan } from './bar-flow-plan.ts'
 
 const bar = parsePattern({
@@ -85,5 +85,22 @@ describe('evaluateSlot', () => {
 
   it('retries a bar whose mean error is too large', () => {
     expect(evaluateSlot(expected, [tap(4090), tap(6090, 1)], windowOf(0), 7880).verdict).toBe('retry')
+  })
+
+  it('schedules the melody of the unit with its pitch and length', () => {
+    const melody = [[], [{ onset: { numerator: 1, denominator: 4 }, duration: { numerator: 1, denominator: 2 }, frequency: 440 }]]
+    const plan = buildBarFlowPlan(4, 1, { mode: 'reading', bpm: 60, guide: 'none' }, melody)
+    expect(plan.soundsForSlot(0, { kind: 'play', unitIndex: 0 }, bar)).toEqual([])
+    expect(plan.soundsForSlot(3, { kind: 'play', unitIndex: 1 }, bar)).toEqual([{ timeMs: 17000, kind: 'melody', frequency: 440, durationMs: 2000 }])
+  })
+
+  it('waits for the end of the slot before deciding a mistake in a continuous flow', () => {
+    const early = evaluateSlot(reading.expectedForSlot(0, bar), [tap(4300)], windowOf(0), 5000)
+    expect(early.verdict).toBe('retry')
+    expect(decidedVerdict(early, windowOf(0), 5000, false)).toBe('retry')
+    expect(decidedVerdict(early, windowOf(0), 5000, true)).toBeNull()
+    const final = evaluateSlot(reading.expectedForSlot(0, bar), [tap(4300)], windowOf(0), 7900)
+    expect(decidedVerdict(final, windowOf(0), 7900, true)).toBe('retry')
+    expect(final.metrics.missCount).toBe(2)
   })
 })

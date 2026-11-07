@@ -10,6 +10,7 @@ export type BarFlow = {
   skipped: boolean[]
   cleanHere: boolean[]
   finished: boolean
+  continuous: boolean
 }
 
 const QUICK_STAGE_ATTEMPTS = 1.5
@@ -18,8 +19,17 @@ const TEMPO_DOWN_ATTEMPTS = 3
 const SLOW_STAGE_SCORE = 0.6
 export const REVIEW_BAR_ATTEMPTS = 3
 
-export function createBarFlow(barCount: number): BarFlow {
-  return { barCount, index: 0, attempts: new Array(barCount).fill(0), skipped: new Array(barCount).fill(false), cleanHere: [], finished: false }
+// continuous 면 결과와 상관없이 다음 단위로 넘어가 끝까지 한 번에 친다.
+export function createBarFlow(barCount: number, continuous = false): BarFlow {
+  return {
+    barCount,
+    index: 0,
+    attempts: new Array(barCount).fill(0),
+    skipped: new Array(barCount).fill(false),
+    cleanHere: [],
+    finished: false,
+    continuous,
+  }
 }
 
 export function recordBar(flow: BarFlow, outcome: BarOutcome): BarFlow {
@@ -29,7 +39,7 @@ export function recordBar(flow: BarFlow, outcome: BarOutcome): BarFlow {
   const attempts = flow.attempts.map((count, index) => (index === flow.index ? count + 1 : count))
   const skipped = flow.skipped.map((value, index) => (index === flow.index ? value || outcome === 'skip' : value))
   const cleanHere = outcome === 'skip' ? [] : [...flow.cleanHere, outcome === 'clean']
-  const advance = outcome === 'skip' || loopPassed(cleanHere)
+  const advance = flow.continuous || outcome === 'skip' || loopPassed(cleanHere)
   const index = advance ? flow.index + 1 : flow.index
   return {
     ...flow,

@@ -41,3 +41,11 @@ export function evaluateSlot(expected: ExpectedEvent[], taps: Tap[], window: Slo
   )
   return { verdict: hasMistake(judgements) ? 'retry' : 'pending', judgements, metrics: computeMetrics(judgements) }
 }
+
+// 끝까지 이어 치는 흐름은 틀려도 칸이 끝날 때까지 기다려 칸 전체 판정을 남긴다.
+export function decidedVerdict(evaluation: SlotEvaluation, window: SlotWindow, nowMs: number, waitForSlotEnd: boolean): 'clean' | 'retry' | null {
+  if (evaluation.verdict === 'pending' || (waitForSlotEnd && nowMs < window.decisionMs)) {
+    return null
+  }
+  return evaluation.verdict
+}

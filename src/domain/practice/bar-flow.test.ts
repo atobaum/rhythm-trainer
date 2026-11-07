@@ -39,4 +39,13 @@ describe('bar flow', () => {
     expect(tempoAfterStage(80, play(1, ['retry', 'retry', 'clean', 'clean'])).change).toBe(-5)
     expect(tempoAfterStage(80, play(2, ['skip', 'clean'])).change).toBe(-5)
   })
+
+  it('moves on after every outcome in a continuous flow and finishes once', () => {
+    const flow = ['retry', 'clean', 'retry'].reduce((current, outcome) => recordBar(current, outcome as BarOutcome), createBarFlow(3, true))
+    expect(flow.finished).toBe(true)
+    expect(flow.attempts).toEqual([1, 1, 1])
+    expect(flow.skipped).toEqual([false, false, false])
+    expect(recordBar(flow, 'retry')).toBe(flow)
+    expect(recordBar(createBarFlow(3, true), 'retry').index).toBe(1)
+  })
 })
