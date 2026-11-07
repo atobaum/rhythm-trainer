@@ -1,6 +1,6 @@
 ---
 created: 2026-11-04
-updated: 2026-11-05
+updated: 2026-11-08
 status: agreed
 type: design
 ---
@@ -77,6 +77,7 @@ type: design
 | 8 | 기타 스트로크 | 다운·업·헛스트로크 패턴 | [[guitar-strumming]] | done |
 | 9 | 양손 독립 | 좌우 탭으로 서로 다른 리듬 | [[two-hand]] | implementing |
 | 10 | 폴리리듬 | 2:3, 3:4, 4:5, 직접 지정 | [[polyrhythm]] | done |
+| 11 | 노래에 맞춰 치기 | 저작권이 끝난 노래 멜로디를 들으며 그 리듬을 끝까지 치기 | [[songs]] | agreed |
 
 가장 먼저 만들 것은 4/4 악보 표시 → 카운트인 → 화면 탭 → 오차 판정 → 결과 확인의 수직 슬라이스다(1~4). 4의 실기기 측정 결과로 웹 유지 여부를 판단한다.
 
@@ -93,7 +94,7 @@ type: design
 | 오디오 | Web Audio API | 오디오 시계 기반 예약 재생 | |
 | 상태 | Zustand 또는 React 내장 | 상태 규모가 작음 | (나중에) |
 | 저장 | localStorage | 로컬 우선. 기록이 작아서 충분 | IndexedDB. 기록이 커지거나 내보내기를 만들 때 재검토 |
-| 배포 | 정적 호스팅 | (나중에) | |
+| 배포 | GitHub Pages(GitHub Actions) | 공개 레포라 무료, 정적 SPA 라 서버 불필요. main 에 push 하면 배포 | 서버 호스팅. 운영 부담 |
 
 ## 8. 열린 문제
 
