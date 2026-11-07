@@ -80,3 +80,7 @@ export const SONGS: Song[] = [
     `,
   },
 ]
+
+export function selectedSong(songId: string): Song {
+  return SONGS.find((song) => song.id === songId) ?? SONGS[0]
+}

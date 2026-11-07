@@ -17,7 +17,7 @@ function polyrhythmPatterns(settings: StoredSettings): RhythmPattern[] {
   return presets.some((pattern) => pattern.id === custom.id) ? presets : [...presets, { ...custom, title: `${custom.title} (직접 지정)` }]
 }
 
-export function patternListFor(target: Exclude<PracticeTarget, 'stages'>, settings: StoredSettings): PatternList {
+export function patternListFor(target: Exclude<PracticeTarget, 'stages' | 'songs'>, settings: StoredSettings): PatternList {
   switch (target) {
     case 'strum':
       return { patterns: STRUM_PATTERNS, selectedKey: 'strumPatternId' }

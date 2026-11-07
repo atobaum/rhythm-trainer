@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { evaluateSlot, tapsInSlot } from '../../application/bar-flow-evaluation.ts'
+import { decidedVerdict, evaluateSlot, tapsInSlot } from '../../application/bar-flow-evaluation.ts'
 import type { BarFlowPlan, FlowSlot } from '../../application/bar-flow-plan.ts'
+import { judgementsFromUnitStart } from '../../application/song-result.ts'
 import { DEFAULT_WINDOWS, judgementTimeMs } from '../../domain/evaluation/matcher.ts'
 import type { Judgement, Tap } from '../../domain/evaluation/matcher.ts'
 import type { PracticeMetrics } from '../../domain/evaluation/metrics.ts'
@@ -9,7 +10,6 @@ import { INITIAL_AUTO_ADJUST, nextAutoAdjust } from '../../domain/practice/auto-
 import type { AutoAdjustOptions, AutoAdjustState } from '../../domain/practice/auto-adjust.ts'
 import type { ExpectedEvent } from '../../domain/rhythm/event-generator.ts'
 import type { BarFlow, BarOutcome } from '../../domain/practice/bar-flow.ts'
-import type { Stage } from '../../domain/curriculum/stages.ts'
 import { splitIntoBars } from '../../domain/rhythm/pattern.ts'
 import type { RhythmPattern } from '../../domain/rhythm/pattern.ts'
 import { audioEngine } from '../../infrastructure/audio/audio-engine.ts'
@@ -30,6 +30,7 @@ export type StageFlowResult = {
   units: RhythmPattern[]
   bpm: number
   lastMetrics: (PracticeMetrics | null)[]
+  unitJudgements: (Judgement[] | null)[]
   manual: Partial<LiveChange>
   tempoRaised: boolean
 }
@@ -37,14 +38,16 @@ export type StageFlowResult = {
 export type StageFlowResume = {
   flow: BarFlow
   lastMetrics: (PracticeMetrics | null)[]
+  unitJudgements: (Judgement[] | null)[]
   change: LiveChange
   manual: Partial<LiveChange>
   autoAdjust: AutoAdjustState
 }
 
 type Props = {
-  stage: Stage
+  title: string
   units: RhythmPattern[]
+  continuous?: boolean
   settings: StoredSettings
   current: LiveChange
   plan: BarFlowPlan
@@ -52,6 +55,7 @@ type Props = {
   scheduledSlots: number
   initialFlow?: BarFlow
   initialLastMetrics?: (PracticeMetrics | null)[]
+  initialUnitJudgements?: (Judgement[] | null)[]
   initialAutoAdjust?: AutoAdjustState
   onFinish: (result: StageFlowResult) => void
   onRestart: (resume: StageFlowResume) => void
@@ -63,6 +67,7 @@ type FlowState = {
   slots: FlowSlot[]
   decisions: Record<number, BarOutcome>
   lastMetrics: (PracticeMetrics | null)[]
+  unitJudgements: (Judgement[] | null)[]
   pendingSlot: number
 }
 
@@ -73,8 +78,10 @@ type FlowInput = {
   skippedSlots: Set<number>
   scoringOriginMs: number
   nowMs: number
+  continuous: boolean
   initialFlow?: BarFlow
   initialLastMetrics?: (PracticeMetrics | null)[]
+  initialUnitJudgements?: (Judgement[] | null)[]
 }
 
 function absoluteExpected(input: FlowInput, slot: number, unitIndex: number): ExpectedEvent[] {
@@ -90,22 +97,26 @@ function slotWindow(input: FlowInput, slot: number) {
 // 마디 결과는 탭, 시각, 건너뛰기만으로 정해지므로 저장하지 않고 매번 처음 칸부터 다시 계산한다.
 function deriveFlow(input: FlowInput): FlowState {
   const { units, plan } = input
-  let flow = input.initialFlow ?? createBarFlow(units.length)
+  let flow = input.initialFlow ?? createBarFlow(units.length, input.continuous)
   const slots: FlowSlot[] = plan.slotsForUnit(flow.index, flow.attempts[flow.index] === 0)
   const decisions: Record<number, BarOutcome> = {}
   const lastMetrics: (PracticeMetrics | null)[] = input.initialLastMetrics ? [...input.initialLastMetrics] : new Array(units.length).fill(null)
+  const unitJudgements: (Judgement[] | null)[] = input.initialUnitJudgements ? [...input.initialUnitJudgements] : new Array(units.length).fill(null)
   let slot = slots.length - 1
   for (;;) {
     let outcome: BarOutcome
     if (input.skippedSlots.has(slot)) {
       outcome = 'skip'
     } else {
-      const evaluation = evaluateSlot(absoluteExpected(input, slot, slots[slot].unitIndex), input.taps, slotWindow(input, slot), input.nowMs)
-      if (evaluation.verdict === 'pending') {
+      const window = slotWindow(input, slot)
+      const evaluation = evaluateSlot(absoluteExpected(input, slot, slots[slot].unitIndex), input.taps, window, input.nowMs)
+      const verdict = decidedVerdict(evaluation, window, input.nowMs, input.continuous)
+      if (verdict === null) {
         break
       }
-      outcome = evaluation.verdict
+      outcome = verdict
       lastMetrics[flow.index] = evaluation.metrics
+      unitJudgements[flow.index] = judgementsFromUnitStart(evaluation.judgements, window.startMs)
     }
     decisions[slot] = outcome
     const previousIndex = flow.index
@@ -116,7 +127,7 @@ function deriveFlow(input: FlowInput): FlowState {
     slots.push(...plan.slotsForUnit(flow.index, flow.index !== previousIndex))
     slot = slots.length - 1
   }
-  return { flow, slots, decisions, lastMetrics, pendingSlot: slot }
+  return { flow, slots, decisions, lastMetrics, unitJudgements, pendingSlot: slot }
 }
 
 type AutoAdjustWalk = {
@@ -153,6 +164,16 @@ function manualFields(change: LiveChange | null, current: LiveChange): Partial<L
 const CLOCK_FREEZE_BEFORE_PERFORM_MS = 200
 const RECENT_TAP_COUNT = 8
 
+function continuousMessage(outcome: BarOutcome | undefined, metrics: PracticeMetrics | null): string {
+  if (outcome === undefined) {
+    return '멜로디에 맞춰 끝까지 쳐요'
+  }
+  if (outcome === 'clean') {
+    return '깔끔해요!'
+  }
+  return `Miss ${metrics?.missCount ?? 0} · Extra ${metrics?.extraCount ?? 0} · 계속 쳐요`
+}
+
 function outcomeMessage(outcome: BarOutcome | undefined, metrics: PracticeMetrics | null, advanced: boolean): string {
   if (outcome === undefined) {
     return '깔끔하게 치면 다음 두 마디로 넘어가요'
@@ -173,8 +194,9 @@ function outcomeMessage(outcome: BarOutcome | undefined, metrics: PracticeMetric
 }
 
 export default function StageFlowScreen({
-  stage,
+  title,
   units,
+  continuous = false,
   settings,
   current,
   plan,
@@ -182,6 +204,7 @@ export default function StageFlowScreen({
   scheduledSlots,
   initialFlow,
   initialLastMetrics,
+  initialUnitJudgements,
   initialAutoAdjust = INITIAL_AUTO_ADJUST,
   onFinish,
   onRestart,
@@ -199,36 +222,45 @@ export default function StageFlowScreen({
   const [liveChange, setLiveChange] = useState<LiveChange | null>(null)
   const [changeSlot, setChangeSlot] = useState<number | null>(null)
 
-  const flowInput: FlowInput = { units, plan, taps, skippedSlots, scoringOriginMs, nowMs, initialFlow, initialLastMetrics }
+  const flowInput: FlowInput = { units, plan, taps, skippedSlots, scoringOriginMs, nowMs, continuous, initialFlow, initialLastMetrics, initialUnitJudgements }
   const state = deriveFlow(flowInput)
   const { pendingSlot } = state
 
+  // 이어 치는 흐름은 다음 단위가 정해져 있으므로 한 칸 먼저 예약해 단위 첫 음이 늦지 않게 한다.
   useEffect(() => {
-    state.slots.forEach((flowSlot, slot) => {
+    const lastSlot = state.slots[state.slots.length - 1]
+    const lookaheadSlots: FlowSlot[] =
+      continuous && !state.flow.finished && lastSlot.unitIndex + 1 < units.length ? [{ kind: 'play', unitIndex: lastSlot.unitIndex + 1 }] : []
+    ;[...state.slots, ...lookaheadSlots].forEach((flowSlot, slot) => {
       if (slot >= scheduledSlots && !scheduledRef.current.has(slot)) {
         scheduledRef.current.add(slot)
         audioEngine.appendToSession(plan.soundsForSlot(slot, flowSlot, units[flowSlot.unitIndex]))
       }
     })
-  }, [state.slots, plan, units, scheduledSlots])
+  }, [state.slots, state.flow.finished, continuous, plan, units, scheduledSlots])
 
+  const elapsedSinceOriginMs = nowMs - clock.originMs
+  // 이어 치는 흐름은 마지막 음이 끝까지 울리도록 마지막 칸이 끝난 뒤에 마친다.
+  const finishDue = state.flow.finished && (!continuous || elapsedSinceOriginMs >= plan.slotStartMs(state.slots.length))
   useEffect(() => {
-    if (state.flow.finished && !finishedRef.current) {
+    if (finishDue && !finishedRef.current) {
       finishedRef.current = true
       onFinish({
         flow: state.flow,
         units,
         bpm: current.bpm,
         lastMetrics: state.lastMetrics,
+        unitJudgements: state.unitJudgements,
         manual: manualFields(liveChange, current),
         tempoRaised: initialAutoAdjust.tempoRaised,
       })
     }
-  }, [state.flow, state.lastMetrics, units, current, onFinish, liveChange, initialAutoAdjust])
+  }, [finishDue, state.flow, state.lastMetrics, state.unitJudgements, units, current, onFinish, liveChange, initialAutoAdjust])
 
-  const autoAdjustOptions: AutoAdjustOptions = { tempoRamp: settings.tempoRamp, guideFade: settings.guideFade, guideCeiling: settings.guide }
+  const autoAdjustOptions: AutoAdjustOptions = continuous
+    ? { tempoRamp: false, guideFade: false, guideCeiling: settings.guide }
+    : { tempoRamp: settings.tempoRamp, guideFade: settings.guideFade, guideCeiling: settings.guide }
   const autoWalk = walkAutoAdjust(autoAdjustOptions, initialAutoAdjust, current, state.decisions)
-  const elapsedSinceOriginMs = nowMs - clock.originMs
 
   // 바꾼 설정은 요청할 때 치던 칸의 판정이 끝나면 세션을 새로 시작해 적용한다. 자동 조절도 같은 길로 적용한다.
   const manualDue = liveChange !== null && changeSlot !== null && state.decisions[changeSlot] !== undefined && elapsedSinceOriginMs >= plan.decisionMs(changeSlot)
@@ -244,11 +276,12 @@ export default function StageFlowScreen({
     onRestart({
       flow: state.flow,
       lastMetrics: state.lastMetrics,
+      unitJudgements: state.unitJudgements,
       change: { ...adjusted, ...manual },
       manual,
       autoAdjust: autoWalk.state,
     })
-  }, [restartDue, liveChange, current, autoWalk, state.flow, state.lastMetrics, onRestart])
+  }, [restartDue, liveChange, current, autoWalk, state.flow, state.lastMetrics, state.unitJudgements, onRestart])
 
   const recordTap = useCallback(
     (timeMs: number, zone: TapZone) => {
@@ -355,11 +388,15 @@ export default function StageFlowScreen({
           ← 그만하기
         </button>
         <span className="muted">
-          {stage.number}. {stage.title} · {current.bpm} BPM
+          {title} · {current.bpm} BPM
         </span>
-        <button type="button" className="link-button" onClick={() => setSkippedSlots((previous) => new Set([...previous, pendingSlot]))}>
-          건너뛰기 →
-        </button>
+        {continuous ? (
+          <span />
+        ) : (
+          <button type="button" className="link-button" onClick={() => setSkippedSlots((previous) => new Set([...previous, pendingSlot]))}>
+            건너뛰기 →
+          </button>
+        )}
       </header>
       <LiveControls
         current={current}
@@ -382,7 +419,9 @@ export default function StageFlowScreen({
           ))}
         </div>
       </div>
-      <p className="muted small flow-message">{outcomeMessage(lastOutcome, lastOutcomeMetrics, lastAdvanced)}</p>
+      <p className="muted small flow-message">
+        {continuous ? continuousMessage(lastOutcome, lastOutcomeMetrics) : outcomeMessage(lastOutcome, lastOutcomeMetrics, lastAdvanced)}
+      </p>
 
       <section className="session-score">
         <ScoreRows

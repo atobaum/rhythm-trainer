@@ -3,9 +3,15 @@ import { calibrationSounds } from '../../application/calibration-session.ts'
 import { buildBarFlowPlan } from '../../application/bar-flow-plan.ts'
 import type { BarFlowPlan } from '../../application/bar-flow-plan.ts'
 import { buildLoopPlan } from '../../application/loop-plan.ts'
+import { joinUnitJudgements } from '../../application/song-result.ts'
 import type { LoopPlan } from '../../application/loop-plan.ts'
 import { contentPatterns } from '../../content/patterns.ts'
+import { computeMetrics } from '../../domain/evaluation/metrics.ts'
 import { tempoAfterLoop } from '../../domain/practice/loop-progress.ts'
+import { createFraction } from '../../domain/rhythm/fraction.ts'
+import { SONG_BARS_PER_UNIT, songMelody, songPattern, songUnits } from '../../domain/songs/song-pattern.ts'
+import { selectedSong } from '../../domain/songs/songs.ts'
+import type { Song } from '../../domain/songs/songs.ts'
 import { starsFor } from '../../domain/practice/stars.ts'
 import { REVIEW_BAR_ATTEMPTS, stageClearedBy, stageSkillScore, tempoAfterStage } from '../../domain/practice/bar-flow.ts'
 import { BARS_PER_UNIT, STAGES, currentStageIndex, skillKeyOf, stageUnits } from '../../domain/curriculum/stages.ts'
@@ -83,13 +89,25 @@ type Screen =
       autoAdjust: AutoAdjustState
     }
   | { kind: 'stage-summary'; stage: Stage; result: StageFlowResult; tempoChange: number }
+  | {
+      kind: 'song-flow'
+      attempt: number
+      song: Song
+      units: RhythmPattern[]
+      plan: BarFlowPlan
+      audioStart: number
+      scheduledSlots: number
+      resume: StageFlowResume | null
+      current: LiveChange
+    }
+  | { kind: 'song-result'; song: Song; result: SessionResult; stars: number; record: RecordUpdate | null }
   | { kind: 'calibration'; attempt: number; audioStart: number }
   | { kind: 'dictation'; attempt: number; stage: Stage; seed: number }
 
-const WAKE_LOCK_SCREENS: ReadonlySet<Screen['kind']> = new Set(['session', 'stage-flow', 'dictation'])
+const WAKE_LOCK_SCREENS: ReadonlySet<Screen['kind']> = new Set(['session', 'stage-flow', 'song-flow', 'dictation'])
 
 function listForTarget(settings: StoredSettings): PatternList {
-  return patternListFor(settings.target === 'stages' ? 'patterns' : settings.target, settings)
+  return patternListFor(settings.target === 'stages' || settings.target === 'songs' ? 'patterns' : settings.target, settings)
 }
 
 function clearedStageIds(): Set<string> {
@@ -315,6 +333,74 @@ export default function PracticeApp() {
     [settings, screen],
   )
 
+  // 노래는 설정의 BPM 대신 곡 템포로 시작하고, 악보 보고 치기로만 친다.
+  const startSong = async (song: Song, bpm: number, continuing: StageFlowResume | null = null) => {
+    if (!(await unlockAudio())) {
+      return
+    }
+    const units = songUnits(song)
+    const guide = continuing?.change.guide ?? settings.guide
+    const plan = buildBarFlowPlan(song.timeSignature.numerator, SONG_BARS_PER_UNIT, { mode: 'reading', bpm, guide }, songMelody(song))
+    const startUnit = continuing?.flow.index ?? 0
+    const firstSlots = plan.slotsForUnit(startUnit, true)
+    attemptRef.current += 1
+    setScreen({
+      kind: 'song-flow',
+      attempt: attemptRef.current,
+      song,
+      units,
+      plan,
+      audioStart: audioEngine.playSession([
+        ...plan.countInSounds,
+        ...firstSlots.flatMap((flowSlot, slot) => plan.soundsForSlot(slot, flowSlot, units[startUnit])),
+      ]),
+      scheduledSlots: firstSlots.length,
+      resume: continuing,
+      current: { bpm, guide },
+    })
+  }
+
+  // 연습 중 바꾼 템포는 이 곡에만 쓰고, 기준음은 다른 연습과 같이 설정에 저장한다.
+  const restartSong = (resume: StageFlowResume) => {
+    if (screen.kind !== 'song-flow') {
+      return
+    }
+    if (resume.manual.guide !== undefined && resume.manual.guide !== settings.guide) {
+      changeSettings({ ...settings, guide: resume.manual.guide })
+    }
+    void startSong(screen.song, resume.change.bpm, resume)
+  }
+
+  const finishSong = (song: Song, plan: BarFlowPlan, result: StageFlowResult) => {
+    audioEngine.stop()
+    markPracticedToday()
+    if (result.manual.guide !== undefined && result.manual.guide !== settings.guide) {
+      changeSettings({ ...settings, guide: result.manual.guide })
+    }
+    const unitLength = createFraction(SONG_BARS_PER_UNIT * song.timeSignature.numerator, song.timeSignature.denominator)
+    const judgements = joinUnitJudgements(result.unitJudgements, plan.slotMs, unitLength)
+    const metrics = computeMetrics(judgements)
+    const stars = starsFor(metrics)
+    const record = saveAttempt(song.id, 'reading', stars, result.bpm)
+    const sessionResult: SessionResult = {
+      judgements,
+      metrics,
+      expectedEvents: judgements.flatMap((judgement) => (judgement.kind === 'extra' ? [] : [judgement.expected])),
+      firstRepetitionStartMs: 0,
+      patternMs: plan.slotMs * result.units.length,
+      repetitions: 1,
+      bpm: result.bpm,
+      barMs: plan.barMs,
+      beatMs: plan.beatMs,
+      beatsPerBar: song.timeSignature.numerator,
+      mutedBars: [],
+      passed: true,
+      repetitionsPlayed: 1,
+      change: null,
+    }
+    setScreen({ kind: 'song-result', song, result: sessionResult, stars, record })
+  }
+
   const startDictation = (stage: Stage) => {
     attemptRef.current += 1
     setScreen({ kind: 'dictation', attempt: attemptRef.current, stage, seed: Math.floor(Math.random() * 1_000_000) })
@@ -327,6 +413,11 @@ export default function PracticeApp() {
     }
     if (settings.target === 'stages') {
       void startStageFlow(selectedStage(settings))
+      return
+    }
+    if (settings.target === 'songs') {
+      const song = selectedSong(settings.songId)
+      void startSong(song, song.defaultBpm)
       return
     }
     const list = listForTarget(settings)
@@ -456,7 +547,7 @@ export default function PracticeApp() {
     return (
       <StageFlowScreen
         key={screen.attempt}
-        stage={screen.stage}
+        title={`${screen.stage.number}. ${screen.stage.title}`}
         units={screen.units}
         settings={settings}
         current={screen.current}
@@ -465,10 +556,53 @@ export default function PracticeApp() {
         scheduledSlots={screen.scheduledSlots}
         initialFlow={screen.resume?.flow}
         initialLastMetrics={screen.resume?.lastMetrics}
+        initialUnitJudgements={screen.resume?.unitJudgements}
         initialAutoAdjust={screen.autoAdjust}
         onFinish={(result) => finishStageFlow(screen.stage, result)}
         onRestart={restartStageFlow}
         onCancel={cancel}
+      />
+    )
+  }
+
+  if (screen.kind === 'song-flow') {
+    return (
+      <StageFlowScreen
+        key={screen.attempt}
+        title={screen.song.title}
+        units={screen.units}
+        continuous
+        settings={{ ...settings, mode: 'reading' }}
+        current={screen.current}
+        plan={screen.plan}
+        audioStart={screen.audioStart}
+        scheduledSlots={screen.scheduledSlots}
+        initialFlow={screen.resume?.flow}
+        initialLastMetrics={screen.resume?.lastMetrics}
+        initialUnitJudgements={screen.resume?.unitJudgements}
+        onFinish={(result) => finishSong(screen.song, screen.plan, result)}
+        onRestart={restartSong}
+        onCancel={cancel}
+      />
+    )
+  }
+
+  if (screen.kind === 'song-result') {
+    const { song, result } = screen
+    return (
+      <ResultScreen
+        pattern={songPattern(song)}
+        result={result}
+        stars={screen.stars}
+        record={screen.record}
+        tempoChange={0}
+        nextBpm={result.bpm}
+        autoTempo={false}
+        layout="song"
+        onRetry={() => void startSong(song, result.bpm)}
+        onBack={() => setScreen({ kind: 'setup' })}
+        onNext={null}
+        nextLabel=""
       />
     )
   }
