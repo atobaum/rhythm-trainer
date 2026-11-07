@@ -95,6 +95,64 @@ describe('stageBars', () => {
   })
 })
 
+describe('생성 마디 다듬기', () => {
+  const generatedBars = (stage: Stage, seed: number) => stageBars(stage, seed).slice(stage.introBars ? 2 : 0)
+  const isTriplet = (pattern: RhythmPattern) => pattern.tracks[0].events.some((event) => event.notation.tuplet)
+  const isStraightSplit = (pattern: RhythmPattern) =>
+    pattern.tracks[0].events.some((event) => !event.notation.tuplet && event.duration.denominator > 4)
+
+  it('한 마디에 둘로 나눔과 셋으로 나눔을 섞지 않는다', () => {
+    for (const stage of STAGES) {
+      for (let seed = 1; seed <= 20; seed++) {
+        generatedBars(stage, seed).forEach((bar, index) => {
+          expect(isTriplet(bar) && isStraightSplit(bar), `${stage.id} ${seed} ${index}`).toBe(false)
+        })
+      }
+    }
+  })
+
+  it('둘째 마디의 절반 넘게가 첫 마디를 한두 박만 바꾼 반복이다', () => {
+    let units = 0
+    let varied = 0
+    const stage = STAGES.find((candidate) => candidate.id === 'two-eighths-2')!
+    for (let seed = 1; seed <= 200; seed++) {
+      const bars = generatedBars(stage, seed)
+      for (let index = 0; index < bars.length; index += 2) {
+        const beatsOf = (pattern: RhythmPattern) =>
+          [0, 1, 2, 3].map((beat) =>
+            JSON.stringify(pattern.tracks[0].events.filter((event) => Math.floor((event.onset.numerator * 4) / event.onset.denominator) === beat).map((event) => [event.duration, event.kind])),
+          )
+        const first = beatsOf(bars[index])
+        const second = beatsOf(bars[index + 1])
+        const differing = first.filter((beat, position) => beat !== second[position]).length
+        units++
+        if (differing >= 1 && differing <= 2) {
+          varied++
+        }
+      }
+    }
+    expect(varied / units).toBeGreaterThan(0.5)
+  })
+
+  it('쉼표로 시작하는 박은 1박 < 3박 < 2·4박 순으로 적다', () => {
+    const restStarts = [0, 0, 0, 0]
+    for (const stage of STAGES.filter((candidate) => candidate.spec.beatsPerBar === 4)) {
+      for (let seed = 1; seed <= 10; seed++) {
+        for (const bar of generatedBars(stage, seed)) {
+          for (let beat = 0; beat < 4; beat++) {
+            const first = bar.tracks[0].events.find((event) => event.onset.numerator * 4 === beat * event.onset.denominator)
+            if (first?.kind === 'rest') {
+              restStarts[beat]++
+            }
+          }
+        }
+      }
+    }
+    expect(restStarts[0]).toBeLessThan(restStarts[2])
+    expect(restStarts[2]).toBeLessThan(Math.min(restStarts[1], restStarts[3]))
+  })
+})
+
 describe('stageUnits', () => {
   it('joins the bars two at a time, intro bars first', () => {
     for (const stage of STAGES) {

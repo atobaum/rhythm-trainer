@@ -1,5 +1,5 @@
 import { figureById } from '../rhythm/figures.ts'
-import { arrangeCells, iconPattern, patternFromCells, seededRandom } from '../rhythm/generator.ts'
+import { arrangeBars, iconPattern, patternFromCells, seededRandom } from '../rhythm/generator.ts'
 import type { Cell, GenerationSpec } from '../rhythm/generator.ts'
 import type { RhythmPattern } from '../rhythm/pattern.ts'
 
@@ -172,22 +172,23 @@ function sameCells(left: Cell[], right: Cell[]): boolean {
 
 export const BARS_PER_UNIT = 2
 
-// 새 음형만으로 마디가 꽉 차면 매번 같은 마디가 되므로, 앞 마디와 같으면 새 음형을 하나씩 덜 넣는다.
+// 새 음형만으로 마디가 꽉 차면 매번 같은 마디가 되므로, 같은 마디가 이어지면 새 음형을 하나씩 덜 넣는다.
 function stageBarCells(stage: Stage, seed: number): Cell[][] {
   const random = seededRandom(seed)
-  const barSpec = { ...stage.spec, bars: 1 }
+  const unitSpec = { ...stage.spec, bars: BARS_PER_UNIT }
   const bars: Cell[][] = stage.introBars ? introBarCells(stage) : []
-  for (let index = 0; index < GENERATED_BARS; index++) {
+  for (let index = 0; index < GENERATED_BARS; index += BARS_PER_UNIT) {
     const previous = bars[bars.length - 1]
-    let featuresPerBar = barSpec.featuresPerBar
-    let cells = arrangeCells(barSpec, Math.floor(random() * 1e9))
-    for (let retry = 1; previous && sameCells(cells, previous) && featuresPerBar > 0; retry++) {
+    const repeats = ([first, second]: Cell[][]) => (previous !== undefined && sameCells(first, previous)) || sameCells(first, second)
+    let featuresPerBar = unitSpec.featuresPerBar
+    let unit = arrangeBars(unitSpec, Math.floor(random() * 1e9))
+    for (let retry = 1; repeats(unit) && featuresPerBar > 0; retry++) {
       if (retry % MAXIMUM_REGENERATIONS === 0) {
         featuresPerBar--
       }
-      cells = arrangeCells({ ...barSpec, featuresPerBar }, Math.floor(random() * 1e9))
+      unit = arrangeBars({ ...unitSpec, featuresPerBar }, Math.floor(random() * 1e9))
     }
-    bars.push(cells)
+    bars.push(...unit)
   }
   return bars
 }
