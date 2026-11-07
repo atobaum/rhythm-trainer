@@ -34,6 +34,7 @@ import type { LoopResume, SessionResult } from './SessionScreen.tsx'
 import type { LiveChange } from '../components/LiveControls.tsx'
 import SetupScreen from './SetupScreen.tsx'
 import { useBackToHome } from '../hooks/use-back-to-home.ts'
+import { useWakeLock } from '../hooks/use-wake-lock.ts'
 import StageFlowScreen from './StageFlowScreen.tsx'
 import type { StageFlowResult, StageFlowResume } from './StageFlowScreen.tsx'
 import type { SetupTab } from './SetupScreen.tsx'
@@ -80,6 +81,8 @@ type Screen =
   | { kind: 'stage-summary'; stage: Stage; result: StageFlowResult; tempoChange: number }
   | { kind: 'calibration'; attempt: number; audioStart: number }
   | { kind: 'dictation'; attempt: number; stage: Stage; seed: number }
+
+const WAKE_LOCK_SCREENS: ReadonlySet<Screen['kind']> = new Set(['session', 'stage-flow', 'dictation'])
 
 function listForTarget(settings: StoredSettings): PatternList {
   return patternListFor(settings.target === 'stages' ? 'patterns' : settings.target, settings)
@@ -167,6 +170,8 @@ export default function PracticeApp() {
   const [sheetOpen, setSheetOpen] = useState(false)
   const [queue, setQueue] = useState<Queue | null>(null)
   const attemptRef = useRef(0)
+
+  useWakeLock(WAKE_LOCK_SCREENS.has(screen.kind))
 
   useBackToHome(screen.kind === 'setup' && setupTab === 'practice' && !sheetOpen, () => {
     audioEngine.stop()
