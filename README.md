@@ -33,6 +33,8 @@ pnpm lint    # oxlint
 
 휴대폰에서 쓰려면 `pnpm dev --host` 로 띄우고 같은 Wi-Fi 에서 표시된 주소로 연다.
 
+배포본은 https://atobaum.github.io/rhythm-trainer/ 에 있다. `main` 에 합치면 GitHub Actions 가 빌드해 GitHub Pages 에 올린다.
+
 ### 화면
 
 - 연습 탭 맨 위 **빠른 연습**의 시작을 누르면 진도, 약한 음형, 처음 보는 패턴, 도전 문제를 섞어 정한 시간만큼 연습한다. 시간과 문제 구성은 설정 탭에서 바꾼다.
