@@ -28,14 +28,14 @@ type PlanItem =
   | { section: string; review: number; key: string }
   | { section: string; switchParts: SwitchPart[] }
 
-// materials 가 null 이면 지금까지 배운 1박 음형을 모두 쓴다.
+// materials 가 null 이면 지금까지 배운 1박 음형을 모두 쓴다. 아이콘은 목록의 좁은 칸에 들어가게 2박, 음 6개까지만.
 type SwitchPart = { title: string; materials: string[] | null; mode: SubdivisionSwitch; icon: string[] }
 
 const SWITCH_PARTS: SwitchPart[] = [
   { title: '8분과 3연음', materials: ['two-eighths', 'triplet'], mode: 'half', icon: ['two-eighths', 'triplet'] },
   { title: '8분과 3연음 박마다', materials: ['two-eighths', 'triplet'], mode: 'beat', icon: ['two-eighths', 'triplet'] },
-  { title: '16분과 3연음', materials: ['four-sixteenths', 'triplet'], mode: 'half', icon: ['four-sixteenths', 'triplet'] },
-  { title: '섞기', materials: null, mode: 'mixed', icon: ['two-eighths', 'triplet', 'four-sixteenths'] },
+  { title: '16분과 3연음', materials: ['four-sixteenths', 'triplet'], mode: 'half', icon: ['four-sixteenths', 'triplet-no-second'] },
+  { title: '섞기', materials: null, mode: 'mixed', icon: ['offbeat-eighth', 'triplet-first-rest'] },
 ]
 
 // 3연음은 박을 셋으로 나누기만 하면 되어서 박을 넷으로 나누는 16분음표보다 먼저 배운다.
