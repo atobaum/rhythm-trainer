@@ -1,3 +1,4 @@
+import type { SoundKind } from '../application/practice-types.ts'
 import type { RhythmPattern, StrumDirection } from '../domain/rhythm/pattern.ts'
 
 export type TapZone = {
@@ -33,6 +34,19 @@ export function tapZonesFor(pattern: RhythmPattern, splitStrum: boolean): TapZon
     ]
   }
   return [{ id: 'single', label: '탭', hint: '화면 아무 곳이나 · 키보드 아무 키', trackId, keys: [] }]
+}
+
+export function tapSoundKind(zone: TapZone): SoundKind {
+  if (zone.direction !== undefined) {
+    return zone.direction === 'down' ? 'strum-down' : 'strum-up'
+  }
+  if (zone.id === 'left') {
+    return 'tap-low'
+  }
+  if (zone.id === 'right') {
+    return 'tap-high'
+  }
+  return 'tap'
 }
 
 export function zoneForKey(zones: TapZone[], key: string): TapZone | null {

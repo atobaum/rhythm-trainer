@@ -50,6 +50,49 @@ function soundingItems(cells: Cell[]): number {
   return cells.flatMap((cell) => cell.items).filter((item) => !item.rest).length
 }
 
+export type Subdivision = 'basic' | 'duple' | 'triple'
+
+export function subdivisionOf(cell: Cell): Subdivision {
+  if (cell.items.some((item) => item.triplet)) {
+    return 'triple'
+  }
+  return cell.items.some((item) => item.duration[1] > 4) ? 'duple' : 'basic'
+}
+
+const startsWithRest = (cell: Cell) => cell.items[0]?.rest === true
+
+// 쉼표로 시작하는 박이 강박에 몰리지 않게 하는 박별 가중치. 값은 가설이다.
+function restStartWeight(beat: number, beatsPerBar: number): number {
+  if (beat === 0) {
+    return 0.25
+  }
+  return beatsPerBar === 4 && beat === 2 ? 0.5 : 1
+}
+
+type Placed = { cell: Cell; start: number; role: 'feature' | 'filler' }
+
+type BarPlan = { placed: Placed[]; features: Cell[]; fillers: Cell[] }
+
+function pickWith<T>(items: T[], random: () => number): T {
+  return items[Math.floor(random() * items.length)]
+}
+
+function pickWeighted<T>(items: T[], weightOf: (item: T) => number, random: () => number): T {
+  const total = items.reduce((sum, item) => sum + weightOf(item), 0)
+  let remaining = random() * total
+  for (const item of items) {
+    remaining -= weightOf(item)
+    if (remaining < 0) {
+      return item
+    }
+  }
+  return items[items.length - 1]
+}
+
+function pickFiller(fillers: Cell[], beat: number, beatsPerBar: number, random: () => number): Cell {
+  return pickWeighted(fillers, (cell) => (startsWithRest(cell) ? restStartWeight(beat, beatsPerBar) : 1), random)
+}
+
 // 4/4 에서 2박 음형은 마디 가운데를 넘지 않게 1박이나 3박에서만 시작한다.
 function startsFor(cell: Cell, slots: (Cell | null)[], beatsPerBar: number): number[] {
   const starts: number[] = []
@@ -63,29 +106,125 @@ function startsFor(cell: Cell, slots: (Cell | null)[], beatsPerBar: number): num
   return starts
 }
 
-function arrangeBar(spec: GenerationSpec, random: () => number): Cell[] {
-  const pick = <T,>(items: T[]) => items[Math.floor(random() * items.length)]
+// 한 마디는 둘로 나눔과 셋으로 나눔 중 한 갈래만 쓴다.
+function cellsOfOneSubdivision(spec: GenerationSpec, random: () => number): { features: Cell[]; fillers: Cell[] } {
+  const subdivisions = [...new Set(spec.features.map(subdivisionOf).filter((subdivision) => subdivision !== 'basic'))]
+  if (subdivisions.length === 0) {
+    return { features: spec.features, fillers: spec.fillers }
+  }
+  const chosen = pickWith(subdivisions, random)
+  const fits = (cell: Cell) => subdivisionOf(cell) === 'basic' || subdivisionOf(cell) === chosen
+  const fillers = spec.fillers.filter(fits)
+  return { features: spec.features.filter(fits), fillers: fillers.some((cell) => cell.beats === 1) ? fillers : spec.fillers }
+}
+
+function planBar(spec: GenerationSpec, random: () => number): BarPlan {
+  const { features, fillers } = cellsOfOneSubdivision(spec, random)
   const slots: (Cell | null)[] = new Array(spec.beatsPerBar).fill(null)
-  for (let placed = 0; placed < spec.featuresPerBar; placed++) {
-    const preferred = pick(spec.features)
-    const candidates = [preferred, ...spec.features.filter((cell) => cell !== preferred)]
+  const placed: Placed[] = []
+  for (let count = 0; count < spec.featuresPerBar; count++) {
+    const preferred = pickWith(features, random)
+    const candidates = [preferred, ...features.filter((cell) => cell !== preferred)]
     const cell = candidates.find((candidate) => startsFor(candidate, slots, spec.beatsPerBar).length > 0)
     if (!cell) {
       break
     }
-    const start = pick(startsFor(cell, slots, spec.beatsPerBar))
-    slots[start] = cell
-    for (let offset = 1; offset < cell.beats; offset++) {
-      slots[start + offset] = { beats: 1, items: [] }
+    const start = pickWith(startsFor(cell, slots, spec.beatsPerBar), random)
+    placed.push({ cell, start, role: 'feature' })
+    for (let offset = 0; offset < cell.beats; offset++) {
+      slots[start + offset] = cell
     }
   }
-  const oneBeatFillers = spec.fillers.filter((cell) => cell.beats === 1)
-  return slots.flatMap((slot) => {
+  const oneBeatFillers = fillers.filter((cell) => cell.beats === 1)
+  slots.forEach((slot, beat) => {
     if (slot === null) {
-      return [pick(oneBeatFillers)]
+      placed.push({ cell: pickFiller(oneBeatFillers, beat, spec.beatsPerBar, random), start: beat, role: 'filler' })
     }
-    return slot.items.length > 0 ? [slot] : []
   })
+  placed.sort((left, right) => left.start - right.start)
+  return { placed, features, fillers: oneBeatFillers }
+}
+
+const VARIED_REPEAT_CHANCE = 0.6
+const QUARTER_ENDING_CHANCE = 0.5
+const MAXIMUM_VARIATION_TRIES = 10
+
+function cellsOf(plan: BarPlan): Cell[] {
+  return plan.placed.map((entry) => entry.cell)
+}
+
+function sameBar(left: Cell[], right: Cell[]): boolean {
+  return JSON.stringify(left) === JSON.stringify(right)
+}
+
+function redraw(entry: Placed, plan: BarPlan, spec: GenerationSpec, random: () => number): Placed {
+  if (entry.role === 'filler') {
+    return { ...entry, cell: pickFiller(plan.fillers, entry.start, spec.beatsPerBar, random) }
+  }
+  const sameLength = plan.features.filter((cell) => cell.beats === entry.cell.beats)
+  return { ...entry, cell: pickWith(sameLength, random) }
+}
+
+// 첫 마디를 한두 박만 바꿔 반복한다. 바꿀 수 있는 박이 없으면 null.
+function varyBar(first: BarPlan, spec: GenerationSpec, random: () => number): BarPlan | null {
+  for (let attempt = 0; attempt < MAXIMUM_VARIATION_TRIES; attempt++) {
+    const changeCount = random() < 0.5 ? 1 : 2
+    const placed = [...first.placed]
+    for (let changed = 0; changed < changeCount; changed++) {
+      const index = Math.floor(random() * placed.length)
+      placed[index] = redraw(placed[index], first, spec, random)
+    }
+    const varied = { ...first, placed }
+    if (!sameBar(cellsOf(varied), cellsOf(first))) {
+      return varied
+    }
+  }
+  return null
+}
+
+function endOnQuarter(plan: BarPlan, spec: GenerationSpec, random: () => number): BarPlan {
+  const last = plan.placed[plan.placed.length - 1]
+  const endings = plan.fillers.filter((cell) => subdivisionOf(cell) === 'basic')
+  if (last.role !== 'filler' || last.start !== spec.beatsPerBar - 1 || endings.length === 0 || random() >= QUARTER_ENDING_CHANCE) {
+    return plan
+  }
+  return { ...plan, placed: [...plan.placed.slice(0, -1), { ...last, cell: pickWith(endings, random) }] }
+}
+
+const QUARTER_FALLBACK: Cell = { beats: 1, items: [note(1, 4)] }
+
+function withEnoughNotes(cells: Cell[]): Cell[] {
+  const result = [...cells]
+  for (let index = 0; index < result.length && soundingItems(result) < 2; index++) {
+    if (result[index].beats === 1 && soundingItems([result[index]]) === 0) {
+      result[index] = QUARTER_FALLBACK
+    }
+  }
+  return result
+}
+
+// 두 마디씩 묶어 둘째 마디는 첫 마디를 조금 바꿔 반복하거나 새로 만들고, 둘째 마디 끝은 4분음표나 쉼표로 맺기 쉽게 한다.
+export function arrangeBars(spec: GenerationSpec, seed: number): Cell[][] {
+  const random = seededRandom(seed)
+  const bars: Cell[][] = []
+  for (let bar = 0; bar < spec.bars; bar += 2) {
+    const first = planBar(spec, random)
+    if (bar + 1 >= spec.bars) {
+      bars.push(withEnoughNotes(cellsOf(first)))
+      break
+    }
+    const varied = random() < VARIED_REPEAT_CHANCE ? varyBar(first, spec, random) : null
+    let second = endOnQuarter(varied ?? planBar(spec, random), spec, random)
+    if (sameBar(cellsOf(second), cellsOf(first))) {
+      second = planBar(spec, random)
+    }
+    bars.push(withEnoughNotes(cellsOf(first)), withEnoughNotes(cellsOf(second)))
+  }
+  return bars
+}
+
+export function arrangeCells(spec: GenerationSpec, seed: number): Cell[] {
+  return arrangeBars(spec, seed).flat()
 }
 
 export function cellsToEvents(cells: Cell[]): RhythmEvent[] {
@@ -117,23 +256,6 @@ export function cellsToEvents(cells: Cell[]): RhythmEvent[] {
     }
   })
   return events
-}
-
-const QUARTER_FALLBACK: Cell = { beats: 1, items: [note(1, 4)] }
-
-export function arrangeCells(spec: GenerationSpec, seed: number): Cell[] {
-  const random = seededRandom(seed)
-  const cells: Cell[] = []
-  for (let bar = 0; bar < spec.bars; bar++) {
-    const barCells = arrangeBar(spec, random)
-    for (let index = 0; index < barCells.length && soundingItems(barCells) < 2; index++) {
-      if (barCells[index].beats === 1 && soundingItems([barCells[index]]) === 0) {
-        barCells[index] = QUARTER_FALLBACK
-      }
-    }
-    cells.push(...barCells)
-  }
-  return cells
 }
 
 export function patternFromCells(

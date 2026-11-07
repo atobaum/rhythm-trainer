@@ -52,6 +52,13 @@ describe('buildLoopPlan', () => {
     expect(plan.phaseAt(5000)).toBe('perform')
   })
 
+  it('이어서 칠 때는 듣고 따라 치기도 미리 듣기 없이 카운트인 1마디', () => {
+    const plan = buildLoopPlan(pattern, { mode: 'imitation', bpm: 60, guide: 'every-beat', skipPreview: true })
+    expect(plan.performStartMs).toBe(4000)
+    expect(plan.introSounds.filter((sound) => sound.kind === 'note')).toEqual([])
+    expect(plan.phaseAt(1000)).toBe('count-in')
+  })
+
   it('mutes every other bar in gap mode across repetitions', () => {
     const plan = buildLoopPlan(pattern, { mode: 'reading', bpm: 60, guide: 'gap' })
     expect(plan.soundsForRepetition(0)).toHaveLength(4)

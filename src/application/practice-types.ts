@@ -1,7 +1,7 @@
 export type PracticeMode = 'reading' | 'imitation'
 export type GuideMode = 'every-beat' | 'first-beat' | 'gap' | 'none'
 
-export type SoundKind = 'accent' | 'beat' | 'note' | 'note-high' | 'strum-down' | 'strum-up' | 'tap'
+export type SoundKind = 'accent' | 'beat' | 'note' | 'note-high' | 'strum-down' | 'strum-up' | 'tap' | 'tap-low' | 'tap-high'
 
 export type ScheduledSound = {
   timeMs: number

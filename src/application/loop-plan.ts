@@ -9,6 +9,7 @@ export type LoopSettings = {
   mode: PracticeMode
   bpm: number
   guide: GuideMode
+  skipPreview?: boolean
 }
 
 export type LoopPhase = 'ready' | 'preview' | 'count-in' | 'perform'
@@ -59,7 +60,8 @@ export function buildLoopPlan(pattern: RhythmPattern, settings: LoopSettings): L
 
   const introSounds: ScheduledSound[] = []
   let previewEndMs = 0
-  if (settings.mode === 'imitation') {
+  const previewing = settings.mode === 'imitation' && settings.skipPreview !== true
+  if (previewing) {
     introSounds.push(...clicks(0, pattern.bars))
     for (const event of generateExpectedEvents(pattern, { bpm: settings.bpm })) {
       introSounds.push(patternSound(event, event.targetTimeMs, rightTrackIdOf(pattern)))
@@ -68,7 +70,7 @@ export function buildLoopPlan(pattern: RhythmPattern, settings: LoopSettings): L
   } else {
     introSounds.push(...clicks(0, 1))
   }
-  const performStartMs = settings.mode === 'imitation' ? previewEndMs : barMs
+  const performStartMs = previewing ? previewEndMs : barMs
 
   const isMutedRepetitionBar = (repetition: number, barInPattern: number) =>
     settings.guide === 'gap' && (repetition * pattern.bars + barInPattern) % 2 === 1
@@ -99,7 +101,7 @@ export function buildLoopPlan(pattern: RhythmPattern, settings: LoopSettings): L
     if (elapsedMs >= performStartMs) {
       return 'perform'
     }
-    return settings.mode === 'imitation' ? 'preview' : 'count-in'
+    return previewing ? 'preview' : 'count-in'
   }
 
   return {

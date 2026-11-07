@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { absoluteExpected, evaluateRepetitions, repetitionOfTime } from '../../application/loop-evaluation.ts'
 import type { RepetitionResult } from '../../application/loop-evaluation.ts'
 import type { LoopPlan } from '../../application/loop-plan.ts'
-import { DEFAULT_WINDOWS, matchEvents } from '../../domain/evaluation/matcher.ts'
+import { DEFAULT_WINDOWS, judgementTimeMs, matchEvents } from '../../domain/evaluation/matcher.ts'
 import type { Judgement, Tap } from '../../domain/evaluation/matcher.ts'
 import { computeMetrics } from '../../domain/evaluation/metrics.ts'
 import type { PracticeMetrics } from '../../domain/evaluation/metrics.ts'
@@ -11,11 +11,12 @@ import type { ExpectedEvent } from '../../domain/rhythm/event-generator.ts'
 import type { RhythmPattern } from '../../domain/rhythm/pattern.ts'
 import { audioEngine } from '../../infrastructure/audio/audio-engine.ts'
 import ErrorMeter from '../components/ErrorMeter.tsx'
-import ScoreView from '../components/ScoreView.tsx'
-import type { PositionToX } from '../components/ScoreView.tsx'
+import LiveControls from '../components/LiveControls.tsx'
+import type { LiveChange } from '../components/LiveControls.tsx'
+import ScoreRows from '../components/ScoreRows.tsx'
 import TimingTrack from '../components/TimingTrack.tsx'
 import { useAudioClock } from '../hooks/use-audio-clock.ts'
-import { tapZonesFor, zoneForKey } from '../tap-zones.ts'
+import { tapSoundKind, tapZonesFor, zoneForKey } from '../tap-zones.ts'
 import type { TapZone } from '../tap-zones.ts'
 import type { StoredSettings } from '../practice-settings.ts'
 
@@ -33,6 +34,13 @@ export type SessionResult = {
   mutedBars: number[]
   passed: boolean
   repetitionsPlayed: number
+  change: LiveChange | null
+}
+
+export type LoopResume = {
+  cleanFlags: boolean[]
+  repetitionsPlayed: number
+  change: LiveChange
 }
 
 type Props = {
@@ -42,11 +50,14 @@ type Props = {
   audioStart: number
   scheduledRepetitions: number
   progressLabel: string | null
+  priorCleanFlags?: boolean[]
   onFinish: (result: SessionResult) => void
+  onRestart: (resume: LoopResume) => void
   onCancel: (reason?: string) => void
 }
 
 const CLOCK_FREEZE_BEFORE_PERFORM_MS = 200
+const NO_PRIOR_FLAGS: boolean[] = []
 const SCHEDULE_AHEAD_REPETITIONS = 3
 const SCHEDULER_INTERVAL_MS = 200
 const RECENT_TAP_COUNT = 8
@@ -59,6 +70,8 @@ function buildDisplay(
   results: RepetitionResult[],
   bpm: number,
   passed: boolean,
+  priorRepetitions: number,
+  change: LiveChange | null,
 ): SessionResult {
   const shown = results.slice(-SHOWN_REPETITIONS)
   const firstShown = shown[0]?.repetition ?? 0
@@ -87,7 +100,8 @@ function buildDisplay(
     beatsPerBar: plan.beatsPerBar,
     mutedBars,
     passed,
-    repetitionsPlayed: results.length,
+    repetitionsPlayed: priorRepetitions + results.length,
+    change,
   }
 }
 
@@ -116,16 +130,18 @@ export default function SessionScreen({
   scheduledRepetitions,
   progressLabel,
   onFinish,
+  priorCleanFlags = NO_PRIOR_FLAGS,
+  onRestart,
   onCancel,
 }: Props) {
+  const [liveChange, setLiveChange] = useState<LiveChange | null>(null)
+  const [changeRepetition, setChangeRepetition] = useState<number | null>(null)
   const [taps, setTaps] = useState<Tap[]>([])
   const finishedRef = useRef(false)
   const clock = useAudioClock(audioStart, plan.performStartMs - CLOCK_FREEZE_BEFORE_PERFORM_MS)
   const { nowMs } = clock
   const scoringOriginMs = clock.originMs + settings.latencyOffsetMs
   const zones = useMemo(() => tapZonesFor(pattern, settings.strumInput === 'split'), [pattern, settings.strumInput])
-  const [positionToX, setPositionToX] = useState<PositionToX>(() => (position: number) => position)
-  const handleScoreLayout = useCallback((mapping: PositionToX) => setPositionToX(() => mapping), [])
 
   useEffect(() => {
     let scheduled = scheduledRepetitions
@@ -153,7 +169,7 @@ export default function SessionScreen({
     () => evaluateRepetitions(plan, scoringOriginMs, taps, completedRepetitions),
     [plan, scoringOriginMs, taps, completedRepetitions],
   )
-  const cleanFlags = results.map((result) => result.clean)
+  const cleanFlags = useMemo(() => [...priorCleanFlags, ...results.map((result) => result.clean)], [priorCleanFlags, results])
   const passed = loopPassed(cleanFlags)
   const cleanStreak = trailingCleanCount(cleanFlags)
   const cleanNeeded = cleanRepetitionsNeeded(cleanFlags)
@@ -164,9 +180,9 @@ export default function SessionScreen({
         return
       }
       finishedRef.current = true
-      onFinish(buildDisplay(plan, pattern, scoringOriginMs, results, settings.bpm, didPass))
+      onFinish(buildDisplay(plan, pattern, scoringOriginMs, results, settings.bpm, didPass, priorCleanFlags.length, liveChange))
     },
-    [plan, pattern, scoringOriginMs, results, settings.bpm, onFinish],
+    [plan, pattern, scoringOriginMs, results, settings.bpm, onFinish, priorCleanFlags.length, liveChange],
   )
 
   useEffect(() => {
@@ -175,8 +191,20 @@ export default function SessionScreen({
     }
   }, [passed, finish])
 
+  // 바꾼 설정은 요청할 때 치던 반복의 판정이 끝나면 세션을 새로 시작해 적용한다.
+  const restartDue = liveChange !== null && changeRepetition !== null && completedRepetitions > changeRepetition && !passed
+  useEffect(() => {
+    if (restartDue && liveChange && !finishedRef.current) {
+      finishedRef.current = true
+      onRestart({ cleanFlags, repetitionsPlayed: cleanFlags.length, change: liveChange })
+    }
+  }, [restartDue, liveChange, cleanFlags, onRestart])
+
   const recordTap = useCallback(
     (timeMs: number, zone: TapZone) => {
+      if (settings.tapSound) {
+        audioEngine.playNow(tapSoundKind(zone))
+      }
       if (finishedRef.current || timeMs - clock.originMs < plan.performStartMs - DEFAULT_WINDOWS.goodMs) {
         return
       }
@@ -185,7 +213,7 @@ export default function SessionScreen({
         { id: `tap${previous.length}`, timeMs, trackId: zone.trackId, ...(zone.direction ? { direction: zone.direction } : {}) },
       ])
     },
-    [clock.originMs, plan],
+    [clock.originMs, plan, settings.tapSound],
   )
 
   useEffect(() => {
@@ -272,6 +300,15 @@ export default function SessionScreen({
           건너뛰기 →
         </button>
       </header>
+      <LiveControls
+        current={{ bpm: settings.bpm, guide: settings.guide }}
+        pending={liveChange}
+        untilLabel="다음 반복"
+        onChange={(next) => {
+          setLiveChange(next)
+          setChangeRepetition((previous) => (next === null ? null : (previous ?? repetition)))
+        }}
+      />
 
       <div className={`session-status ${phase === 'count-in' ? 'session-count' : ''}`}>{status}</div>
       <div className="loop-progress">
@@ -282,26 +319,44 @@ export default function SessionScreen({
       </div>
 
       <section className="session-score">
-        <ScoreView
+        <ScoreRows
           pattern={pattern}
           hidden={hideScore}
-          cursorX={hideScore || shownCursor === null ? null : positionToX(shownCursor)}
-          onLayout={handleScoreLayout}
+          cursor={shownCursor}
+          renderTracks={(row) =>
+            trackIds.map((trackId) => (
+              <div key={trackId} className={trackIds.length > 1 ? 'hand-track' : undefined}>
+                {trackIds.length > 1 && <span className="hand-label">{trackId === 'left' ? 'L' : 'R'}</span>}
+                <TimingTrack
+                  beats={row.beats}
+                  targets={
+                    performing
+                      ? windowExpected.filter(
+                          (event) => event.repetition === repetition && event.trackId === trackId && row.contains(positionOf(event.targetTimeMs)),
+                        )
+                      : []
+                  }
+                  judgements={
+                    performing
+                      ? trackJudgements.filter(
+                          (judgement) => judgementTrack(judgement) === trackId && row.contains(positionOf(judgementTimeMs(judgement))),
+                        )
+                      : []
+                  }
+                  pendingTapPositions={
+                    performing
+                      ? pendingTaps
+                          .filter((tap) => tap.trackId === trackId && row.contains(positionOf(tap.timeMs)))
+                          .map((tap) => row.toX(positionOf(tap.timeMs)))
+                      : []
+                  }
+                  positionOf={(timeMs) => row.toX(positionOf(timeMs))}
+                  cursor={cursor === null || row.cursor === null ? null : row.toX(row.cursor)}
+                />
+              </div>
+            ))
+          }
         />
-        {trackIds.map((trackId) => (
-          <div key={trackId} className={trackIds.length > 1 ? 'hand-track' : undefined}>
-            {trackIds.length > 1 && <span className="hand-label">{trackId === 'left' ? 'L' : 'R'}</span>}
-            <TimingTrack
-              targets={performing ? windowExpected.filter((event) => event.repetition === repetition && event.trackId === trackId) : []}
-              judgements={performing ? trackJudgements.filter((judgement) => judgementTrack(judgement) === trackId) : []}
-              pendingTapPositions={
-                performing ? pendingTaps.filter((tap) => tap.trackId === trackId).map((tap) => positionToX(positionOf(tap.timeMs))) : []
-              }
-              positionOf={(timeMs) => positionToX(positionOf(timeMs))}
-              cursor={cursor === null ? null : positionToX(cursor)}
-            />
-          </div>
-        ))}
         <ErrorMeter recent={recentTaps} />
       </section>
 
