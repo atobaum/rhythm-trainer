@@ -556,6 +556,7 @@ export default function PracticeApp() {
         scheduledSlots={screen.scheduledSlots}
         initialFlow={screen.resume?.flow}
         initialLastMetrics={screen.resume?.lastMetrics}
+        initialUnitBpms={screen.resume?.unitBpms}
         initialUnitJudgements={screen.resume?.unitJudgements}
         initialAutoAdjust={screen.autoAdjust}
         onFinish={(result) => finishStageFlow(screen.stage, result)}
@@ -579,6 +580,7 @@ export default function PracticeApp() {
         scheduledSlots={screen.scheduledSlots}
         initialFlow={screen.resume?.flow}
         initialLastMetrics={screen.resume?.lastMetrics}
+        initialUnitBpms={screen.resume?.unitBpms}
         initialUnitJudgements={screen.resume?.unitJudgements}
         onFinish={(result) => finishSong(screen.song, screen.plan, result)}
         onRestart={restartSong}
@@ -616,7 +618,7 @@ export default function PracticeApp() {
       passed: !result.flow.skipped[index],
       repetitionsPlayed: result.flow.attempts[index],
       stars: result.lastMetrics[index] ? starsFor(result.lastMetrics[index]) : 0,
-      bpm: result.bpm,
+      bpm: result.unitBpms[index] ?? result.bpm,
       label: result.flow.attempts[index] >= REVIEW_BAR_ATTEMPTS ? '다시 볼 마디' : undefined,
     }))
     const tempoNote = tempoChange === 0 ? '' : ` 다음 BPM ${settings.bpm} (${tempoChange > 0 ? '+' : ''}${tempoChange})`

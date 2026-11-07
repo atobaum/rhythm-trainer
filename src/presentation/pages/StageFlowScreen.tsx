@@ -31,6 +31,7 @@ export type StageFlowResult = {
   bpm: number
   lastMetrics: (PracticeMetrics | null)[]
   unitJudgements: (Judgement[] | null)[]
+  unitBpms: (number | null)[]
   manual: Partial<LiveChange>
   tempoRaised: boolean
 }
@@ -39,6 +40,7 @@ export type StageFlowResume = {
   flow: BarFlow
   lastMetrics: (PracticeMetrics | null)[]
   unitJudgements: (Judgement[] | null)[]
+  unitBpms: (number | null)[]
   change: LiveChange
   manual: Partial<LiveChange>
   autoAdjust: AutoAdjustState
@@ -56,6 +58,7 @@ type Props = {
   initialFlow?: BarFlow
   initialLastMetrics?: (PracticeMetrics | null)[]
   initialUnitJudgements?: (Judgement[] | null)[]
+  initialUnitBpms?: (number | null)[]
   initialAutoAdjust?: AutoAdjustState
   onFinish: (result: StageFlowResult) => void
   onRestart: (resume: StageFlowResume) => void
@@ -68,6 +71,7 @@ type FlowState = {
   decisions: Record<number, BarOutcome>
   lastMetrics: (PracticeMetrics | null)[]
   unitJudgements: (Judgement[] | null)[]
+  unitBpms: (number | null)[]
   pendingSlot: number
 }
 
@@ -79,9 +83,11 @@ type FlowInput = {
   scoringOriginMs: number
   nowMs: number
   continuous: boolean
+  bpm: number
   initialFlow?: BarFlow
   initialLastMetrics?: (PracticeMetrics | null)[]
   initialUnitJudgements?: (Judgement[] | null)[]
+  initialUnitBpms?: (number | null)[]
 }
 
 function absoluteExpected(input: FlowInput, slot: number, unitIndex: number): ExpectedEvent[] {
@@ -102,6 +108,8 @@ function deriveFlow(input: FlowInput): FlowState {
   const decisions: Record<number, BarOutcome> = {}
   const lastMetrics: (PracticeMetrics | null)[] = input.initialLastMetrics ? [...input.initialLastMetrics] : new Array(units.length).fill(null)
   const unitJudgements: (Judgement[] | null)[] = input.initialUnitJudgements ? [...input.initialUnitJudgements] : new Array(units.length).fill(null)
+  // 연습 중 템포가 바뀌면 단위마다 마지막으로 친 BPM 이 다르다.
+  const unitBpms: (number | null)[] = input.initialUnitBpms ? [...input.initialUnitBpms] : new Array(units.length).fill(null)
   let slot = slots.length - 1
   for (;;) {
     let outcome: BarOutcome
@@ -117,6 +125,7 @@ function deriveFlow(input: FlowInput): FlowState {
       outcome = verdict
       lastMetrics[flow.index] = evaluation.metrics
       unitJudgements[flow.index] = judgementsFromUnitStart(evaluation.judgements, window.startMs)
+      unitBpms[flow.index] = input.bpm
     }
     decisions[slot] = outcome
     const previousIndex = flow.index
@@ -127,7 +136,7 @@ function deriveFlow(input: FlowInput): FlowState {
     slots.push(...plan.slotsForUnit(flow.index, flow.index !== previousIndex))
     slot = slots.length - 1
   }
-  return { flow, slots, decisions, lastMetrics, unitJudgements, pendingSlot: slot }
+  return { flow, slots, decisions, lastMetrics, unitJudgements, unitBpms, pendingSlot: slot }
 }
 
 type AutoAdjustWalk = {
@@ -205,6 +214,7 @@ export default function StageFlowScreen({
   initialFlow,
   initialLastMetrics,
   initialUnitJudgements,
+  initialUnitBpms,
   initialAutoAdjust = INITIAL_AUTO_ADJUST,
   onFinish,
   onRestart,
@@ -222,7 +232,7 @@ export default function StageFlowScreen({
   const [liveChange, setLiveChange] = useState<LiveChange | null>(null)
   const [changeSlot, setChangeSlot] = useState<number | null>(null)
 
-  const flowInput: FlowInput = { units, plan, taps, skippedSlots, scoringOriginMs, nowMs, continuous, initialFlow, initialLastMetrics, initialUnitJudgements }
+  const flowInput: FlowInput = { units, plan, taps, skippedSlots, scoringOriginMs, nowMs, continuous, bpm: current.bpm, initialFlow, initialLastMetrics, initialUnitJudgements, initialUnitBpms }
   const state = deriveFlow(flowInput)
   const { pendingSlot } = state
 
@@ -251,11 +261,12 @@ export default function StageFlowScreen({
         bpm: current.bpm,
         lastMetrics: state.lastMetrics,
         unitJudgements: state.unitJudgements,
+        unitBpms: state.unitBpms,
         manual: manualFields(liveChange, current),
         tempoRaised: initialAutoAdjust.tempoRaised,
       })
     }
-  }, [finishDue, state.flow, state.lastMetrics, state.unitJudgements, units, current, onFinish, liveChange, initialAutoAdjust])
+  }, [finishDue, state.flow, state.lastMetrics, state.unitJudgements, state.unitBpms, units, current, onFinish, liveChange, initialAutoAdjust])
 
   const autoAdjustOptions: AutoAdjustOptions = continuous
     ? { tempoRamp: false, guideFade: false, guideCeiling: settings.guide }
@@ -277,11 +288,12 @@ export default function StageFlowScreen({
       flow: state.flow,
       lastMetrics: state.lastMetrics,
       unitJudgements: state.unitJudgements,
+      unitBpms: state.unitBpms,
       change: { ...adjusted, ...manual },
       manual,
       autoAdjust: autoWalk.state,
     })
-  }, [restartDue, liveChange, current, autoWalk, state.flow, state.lastMetrics, state.unitJudgements, onRestart])
+  }, [restartDue, liveChange, current, autoWalk, state.flow, state.lastMetrics, state.unitJudgements, state.unitBpms, onRestart])
 
   const recordTap = useCallback(
     (timeMs: number, zone: TapZone) => {
