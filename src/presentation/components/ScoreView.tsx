@@ -12,6 +12,22 @@ type Props = {
   minimal?: boolean
 }
 
+// 작은 보기는 칸 폭이 고정이라, 그린 내용이 칸보다 넓으면 비율을 지켜 줄인다. 좁은 내용은 키우지 않는다.
+function shrinkToFit(drawing: HTMLElement, width: number) {
+  const svg = drawing.querySelector('svg')
+  if (!svg || typeof svg.getBBox !== 'function') {
+    return
+  }
+  const box = svg.getBBox()
+  const contentWidth = Math.ceil(box.x + box.width)
+  if (contentWidth <= width) {
+    return
+  }
+  const height = Number(svg.getAttribute('height'))
+  svg.setAttribute('viewBox', `0 0 ${contentWidth} ${height}`)
+  svg.setAttribute('preserveAspectRatio', 'xMinYMid meet')
+}
+
 export default function ScoreView({
   pattern,
   hidden = false,
@@ -46,6 +62,9 @@ export default function ScoreView({
       }
       try {
         const layout = renderScore(drawing, pattern, width, { minimal })
+        if (minimal) {
+          shrinkToFit(drawing, width)
+        }
         setFailure(null)
         onLayout?.(layout.xOfPatternPosition)
       } catch (error) {

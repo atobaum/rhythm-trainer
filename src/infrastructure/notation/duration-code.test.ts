@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { createFraction } from '../../domain/rhythm/fraction.ts'
+import { songUnits } from '../../domain/songs/song-pattern.ts'
+import { SONGS } from '../../domain/songs/songs.ts'
 import { toNotationDuration } from './duration-code.ts'
 
 describe('toNotationDuration', () => {
@@ -36,6 +38,14 @@ describe('polyrhythm notation', () => {
       const [track] = createPolyrhythmPattern(divisions, 1).tracks
       for (const event of track.events) {
         expect(toNotationDuration(event.duration, event.notation.tuplet), `${divisions}`).not.toBeNull()
+      }
+    }
+  })
+
+  it('writes every song note as a plain or dotted note value', () => {
+    for (const song of SONGS) {
+      for (const event of songUnits(song).flatMap((unit) => unit.tracks[0].events)) {
+        expect(toNotationDuration(event.duration), `${song.id} ${event.id}`).not.toBeNull()
       }
     }
   })

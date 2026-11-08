@@ -1,6 +1,6 @@
 ---
 created: 2026-11-04
-updated: 2026-11-05
+updated: 2026-11-08
 status: agreed
 type: design
 ---
@@ -71,12 +71,13 @@ type: design
 | 2 | 타이밍 판정 | 시계 동기화, 이벤트 매칭, 판정, 지표 | [[timing-judgement]] | implementing |
 | 3 | 읽기·모방 연습 | 악보 보고 치기, 듣고 따라 치기와 공통 연습 상태 | [[reading-imitation]] | implementing |
 | 4 | 연습 화면·실시간 피드백 | 악보, 타이밍 트랙, 탭 영역, 자동 템포, 결과 화면 | [[practice-screen]] | implementing |
-| 5 | 커리큘럼·자유 연습 | 음형별 110단계와 진도, 도입 마디와 매번 새로 만드는 마디 흐름, 고정·스트로크·양손·폴리리듬 목록 | [[curriculum]] | done |
+| 5 | 커리큘럼·자유 연습 | 음형별 114단계와 진도, 도입 마디와 매번 새로 만드는 마디 흐름, 고정·스트로크·양손·폴리리듬 목록 | [[curriculum]] | done |
 | 6 | 빠른 연습 | 원탭 시작, 연습 시간 설정, 자동 큐레이션 | [[quick-practice]] | done |
 | 7 | 리듬 청음 | 듣고 악보 고르기·완성하기 | [[dictation]] | done |
 | 8 | 기타 스트로크 | 다운·업·헛스트로크 패턴 | [[guitar-strumming]] | done |
 | 9 | 양손 독립 | 좌우 탭으로 서로 다른 리듬 | [[two-hand]] | implementing |
 | 10 | 폴리리듬 | 2:3, 3:4, 4:5, 직접 지정 | [[polyrhythm]] | done |
+| 11 | 노래에 맞춰 치기 | 저작권이 끝난 노래 멜로디를 들으며 그 리듬을 끝까지 치기 | [[songs]] | implementing |
 
 가장 먼저 만들 것은 4/4 악보 표시 → 카운트인 → 화면 탭 → 오차 판정 → 결과 확인의 수직 슬라이스다(1~4). 4의 실기기 측정 결과로 웹 유지 여부를 판단한다.
 
@@ -93,7 +94,7 @@ type: design
 | 오디오 | Web Audio API | 오디오 시계 기반 예약 재생 | |
 | 상태 | Zustand 또는 React 내장 | 상태 규모가 작음 | (나중에) |
 | 저장 | localStorage | 로컬 우선. 기록이 작아서 충분 | IndexedDB. 기록이 커지거나 내보내기를 만들 때 재검토 |
-| 배포 | 정적 호스팅 | (나중에) | |
+| 배포 | GitHub Pages(GitHub Actions) | 공개 레포라 무료, 정적 SPA 라 서버 불필요. main 에 push 하면 배포 | 서버 호스팅. 운영 부담 |
 
 ## 8. 열린 문제
 

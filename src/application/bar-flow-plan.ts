@@ -1,7 +1,9 @@
 import { DEFAULT_WINDOWS } from '../domain/evaluation/matcher.ts'
 import { generateExpectedEvents } from '../domain/rhythm/event-generator.ts'
 import type { ExpectedEvent } from '../domain/rhythm/event-generator.ts'
+import { fractionToNumber } from '../domain/rhythm/fraction.ts'
 import type { RhythmPattern } from '../domain/rhythm/pattern.ts'
+import type { MelodyNote } from '../domain/songs/song-pattern.ts'
 import { patternSound, rightTrackIdOf } from './loop-plan.ts'
 import type { LoopSettings } from './loop-plan.ts'
 import type { ScheduledSound } from './practice-types.ts'
@@ -32,8 +34,10 @@ export type BarFlowPlan = {
 
 const MILLISECONDS_PER_WHOLE_NOTE_AT_ONE_BPM = 240000
 
-export function buildBarFlowPlan(beatsPerBar: number, barsPerUnit: number, settings: LoopSettings): BarFlowPlan {
-  const beatMs = MILLISECONDS_PER_WHOLE_NOTE_AT_ONE_BPM / settings.bpm / 4
+// melody 는 단위마다 함께 들려줄 멜로디다. 치는 칸에서 기준음과 함께 예약한다.
+export function buildBarFlowPlan(beatsPerBar: number, barsPerUnit: number, settings: LoopSettings, melody: MelodyNote[][] = []): BarFlowPlan {
+  const wholeNoteMs = MILLISECONDS_PER_WHOLE_NOTE_AT_ONE_BPM / settings.bpm
+  const beatMs = wholeNoteMs / 4
   const barMs = beatMs * beatsPerBar
   const slotMs = barMs * barsPerUnit
   const firstSlotMs = barMs
@@ -59,6 +63,14 @@ export function buildBarFlowPlan(beatsPerBar: number, barsPerUnit: number, setti
     return settings.guide === 'first-beat' ? barClicks.slice(0, 1) : []
   }
 
+  const melodyForSlot = (slot: number, flowSlot: FlowSlot): ScheduledSound[] =>
+    (melody[flowSlot.unitIndex] ?? []).map((note) => ({
+      timeMs: slotStartMs(slot) + fractionToNumber(note.onset) * wholeNoteMs,
+      kind: 'melody',
+      frequency: note.frequency,
+      durationMs: fractionToNumber(note.duration) * wholeNoteMs,
+    }))
+
   const expectedForSlot = (slot: number, unit: RhythmPattern): ExpectedEvent[] =>
     generateExpectedEvents(unit, { bpm: settings.bpm, startTimeMs: slotStartMs(slot) }).map((event) => ({
       ...event,
@@ -83,6 +95,7 @@ export function buildBarFlowPlan(beatsPerBar: number, barsPerUnit: number, setti
       ...(flowSlot.kind === 'listen'
         ? expectedForSlot(slot, unit).map((event) => patternSound(event, event.targetTimeMs, rightTrackIdOf(unit)))
         : []),
+      ...melodyForSlot(slot, flowSlot),
     ],
     expectedForSlot,
   }

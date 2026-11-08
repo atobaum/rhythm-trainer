@@ -133,6 +133,17 @@ button {
   font-size: 14px;
 }
 
+.check-column {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  align-items: center;
+}
+
+.check-column .small {
+  flex-basis: 100%;
+}
+
 .start-button,
 .primary-button,
 .secondary-button {
@@ -616,7 +627,7 @@ button {
 
 .option-row {
   display: grid;
-  grid-template-columns: 52px 1fr;
+  grid-template-columns: 68px 1fr;
   align-items: center;
   gap: 8px;
 }
@@ -624,10 +635,11 @@ button {
 .option-label {
   font-size: 14px;
   font-weight: 600;
+  white-space: nowrap;
 }
 
 .option-indent {
-  margin: -4px 0 0 60px;
+  margin: -4px 0 0 76px;
 }
 
 .option-control .choice-item {

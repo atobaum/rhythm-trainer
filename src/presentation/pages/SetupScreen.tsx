@@ -7,6 +7,8 @@ import type { DictationKind } from './DictationScreen.tsx'
 import { currentStreak } from '../learning-store.ts'
 import { patternListFor, selectedIndex } from '../pattern-lists.ts'
 import { MAXIMUM_POLYRHYTHM_DIVISIONS } from '../../domain/rhythm/polyrhythm.ts'
+import { songBarCount } from '../../domain/songs/song-pattern.ts'
+import { SONGS, selectedSong } from '../../domain/songs/songs.ts'
 import ScoreView from '../components/ScoreView.tsx'
 import { loadRecord } from '../practice-records.ts'
 import type { StoredSettings } from '../practice-settings.ts'
@@ -106,6 +108,9 @@ const GUIDE_LABELS: Record<GuideMode, string> = { 'every-beat': '매 박', 'firs
 
 function optionSummary(settings: StoredSettings): string {
   const tempo = `${settings.bpm} BPM${settings.autoTempo ? ' 자동' : ''}`
+  if (settings.exercise === 'tap' && settings.target === 'songs') {
+    return ['보고 치기', '곡 템포', GUIDE_LABELS[settings.guide]].join(' · ')
+  }
   if (settings.exercise === 'dictation') {
     return ['듣고 맞히기', settings.dictationKind === 'choice' ? '악보 고르기' : '악보 완성하기', tempo].join(' · ')
   }
@@ -141,7 +146,8 @@ export default function SetupScreen({
   const currentIndex = currentStageIndex(new Set(Object.keys(progress)))
   const selectedStage = STAGES.find((stage) => stage.id === settings.selectedStageId) ?? STAGES[currentIndex]
   const stageListRef = useRef<HTMLDivElement>(null)
-  const list = settings.target === 'stages' ? null : patternListFor(settings.target, settings)
+  const list = settings.target === 'stages' || settings.target === 'songs' ? null : patternListFor(settings.target, settings)
+  const song = selectedSong(settings.songId)
 
   useEffect(() => {
     const list = stageListRef.current
@@ -200,6 +206,27 @@ export default function SetupScreen({
                 ))}
               </div>
             )}
+            {settings.target === 'songs' && (
+              <div className="pattern-list">
+                {SONGS.map((candidate) => (
+                  <button
+                    type="button"
+                    key={candidate.id}
+                    className={candidate.id === song.id ? 'pattern-card pattern-selected' : 'pattern-card'}
+                    onClick={() => update('songId', candidate.id)}
+                  >
+                    <span className="pattern-card-title">
+                      {candidate.title}
+                      <RecordBadge patternId={candidate.id} mode="reading" />
+                    </span>
+                    <span className="muted small">
+                      {candidate.source} · {candidate.timeSignature.numerator}/{candidate.timeSignature.denominator} · {songBarCount(candidate)}마디 ·{' '}
+                      {candidate.defaultBpm} BPM
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
             {list && (
               <div className="pattern-list">
                 {list.patterns.map((pattern) => (
@@ -230,6 +257,7 @@ export default function SetupScreen({
                   { value: 'strum', label: '기타 스트로크' },
                   { value: 'two-hand', label: '양손' },
                   { value: 'polyrhythm', label: '폴리리듬' },
+                  { value: 'songs', label: '노래' },
                 ]}
               />
             </div>}
@@ -238,7 +266,9 @@ export default function SetupScreen({
               <span aria-hidden="true">옵션 ▴</span>
             </button>
             <button type="button" className="start-button" onClick={onStart}>
-              {settings.target !== 'stages'
+              {settings.target === 'songs' && settings.exercise === 'tap'
+                ? `${song.title} 시작`
+                : settings.target !== 'stages'
                 ? '시작'
                 : `${selectedStage.number}. ${selectedStage.title} ${settings.exercise === 'dictation' ? '청음 ' : ''}시작`}
             </button>
@@ -329,7 +359,25 @@ export default function SetupScreen({
                     />
                   </OptionRow>
                   )}
+                  {settings.exercise === 'tap' && settings.target === 'stages' && (
+                    <OptionRow label="연습 중">
+                      <div className="check-column">
+                        <label className="check-row">
+                          <input type="checkbox" checked={settings.tempoRamp} onChange={(event) => update('tempoRamp', event.target.checked)} />
+                          템포 올리기
+                        </label>
+                        <label className="check-row">
+                          <input type="checkbox" checked={settings.guideFade} onChange={(event) => update('guideFade', event.target.checked)} />
+                          기준음 줄이기
+                        </label>
+                        <span className="muted small">두 칸 연속 깔끔하면 +5 BPM, 기준음 한 단계 줄임</span>
+                      </div>
+                    </OptionRow>
+                  )}
                 </section>
+                {settings.exercise === 'tap' && settings.target === 'songs' && (
+                  <p className="muted small">노래는 악보 보고 치기로, 곡마다 정해진 템포로 시작해요. 템포는 연습 중 설정 바꾸기로 바꿀 수 있어요.</p>
+                )}
                 {['strum', 'two-hand', 'polyrhythm'].includes(settings.target) && (
                   <section className="options">
                 {settings.target === 'strum' && (

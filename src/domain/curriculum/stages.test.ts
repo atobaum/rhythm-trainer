@@ -9,7 +9,16 @@ describe('STAGES', () => {
   it('numbers stages in order with unique ids', () => {
     expect(STAGES.map((stage) => stage.number)).toEqual(STAGES.map((_, index) => index + 1))
     expect(new Set(STAGES.map((stage) => stage.id)).size).toBe(STAGES.length)
-    expect(STAGES.length).toBeGreaterThanOrEqual(90)
+    expect(STAGES.length).toBe(114)
+  })
+
+  it('puts four subdivision switch stages after the sixteenths review and before dotted notes', () => {
+    const switchStages = STAGES.filter((stage) => stage.kind === 'switch')
+    expect(switchStages.map((stage) => stage.id)).toEqual(['switch-1', 'switch-2', 'switch-3', 'switch-4'])
+    expect(switchStages.every((stage) => stage.section === '나눔 바꾸기' && !stage.introBars && stage.barCount === 8 && stage.spec.beatsPerBar === 4)).toBe(true)
+    const first = STAGES.indexOf(switchStages[0])
+    expect(STAGES[first - 1].id).toBe('review-sixteenths-3')
+    expect(STAGES[first + 4].id).toBe('dotted-eighth-sixteenth-1')
   })
 
   it('names figure parts and review stages', () => {
@@ -102,7 +111,7 @@ describe('생성 마디 다듬기', () => {
     pattern.tracks[0].events.some((event) => !event.notation.tuplet && event.duration.denominator > 4)
 
   it('한 마디에 둘로 나눔과 셋으로 나눔을 섞지 않는다', () => {
-    for (const stage of STAGES) {
+    for (const stage of STAGES.filter((candidate) => candidate.kind !== 'switch')) {
       for (let seed = 1; seed <= 20; seed++) {
         generatedBars(stage, seed).forEach((bar, index) => {
           expect(isTriplet(bar) && isStraightSplit(bar), `${stage.id} ${seed} ${index}`).toBe(false)
@@ -150,6 +159,50 @@ describe('생성 마디 다듬기', () => {
     }
     expect(restStarts[0]).toBeLessThan(restStarts[2])
     expect(restStarts[2]).toBeLessThan(Math.min(restStarts[1], restStarts[3]))
+  })
+})
+
+describe('나눔 바꾸기 단계', () => {
+  type Family = 'basic' | 'duple' | 'triple'
+  const beatFamilies = (pattern: RhythmPattern): Family[] =>
+    [0, 1, 2, 3].map((beat) => {
+      const events = pattern.tracks[0].events.filter((event) => Math.floor((event.onset.numerator * 4) / event.onset.denominator) === beat)
+      if (events.some((event) => event.notation.tuplet)) {
+        return 'triple'
+      }
+      return events.some((event) => event.duration.denominator > 4) ? 'duple' : 'basic'
+    })
+  const splitAt = (families: Family[], beats: number[]) => new Set(beats.map((beat) => families[beat]).filter((family) => family !== 'basic'))
+  const switchStage = (id: string) => STAGES.find((stage) => stage.id === id)!
+  const barsOf = (id: string) => Array.from({ length: 20 }, (_, index) => stageBars(switchStage(id), index + 1)).flat().map(beatFamilies)
+
+  it('puts both families in every bar', () => {
+    for (const id of ['switch-1', 'switch-2', 'switch-3', 'switch-4']) {
+      barsOf(id).forEach((families) => expect(splitAt(families, [0, 1, 2, 3]), `${id} ${families.join()}`).toEqual(new Set(['duple', 'triple'])))
+    }
+  })
+
+  it('switches every half bar in parts 1 and 3', () => {
+    for (const id of ['switch-1', 'switch-3']) {
+      barsOf(id).forEach((families) => {
+        expect(splitAt(families, [0, 1]).size, `${id} ${families.join()}`).toBe(1)
+        expect(splitAt(families, [2, 3]).size, `${id} ${families.join()}`).toBe(1)
+      })
+    }
+  })
+
+  it('switches every beat in part 2', () => {
+    barsOf('switch-2').forEach((families) => {
+      expect(splitAt(families, [0, 2]).size, families.join()).toBe(1)
+      expect(splitAt(families, [1, 3]).size, families.join()).toBe(1)
+    })
+  })
+
+  it('uses sixteenths in part 3 and eighths in part 1', () => {
+    const denominators = (id: string) =>
+      new Set(Array.from({ length: 20 }, (_, index) => stageBars(switchStage(id), index + 1)).flat().flatMap((bar) => bar.tracks[0].events.filter((event) => !event.notation.tuplet).map((event) => event.duration.denominator)))
+    expect(denominators('switch-1')).toEqual(new Set([4, 8]))
+    expect(denominators('switch-3')).toEqual(new Set([4, 16]))
   })
 })
 

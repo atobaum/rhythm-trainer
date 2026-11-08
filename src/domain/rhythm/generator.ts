@@ -25,6 +25,9 @@ export const triplet = (numerator: number, denominator: number, extra: Partial<C
   ...extra,
 })
 
+// half 는 반 마디마다, beat 는 박마다 갈래를 바꾸고, mixed 는 박마다 무작위로 고른다.
+export type SubdivisionSwitch = 'half' | 'beat' | 'mixed'
+
 export type GenerationSpec = {
   id: string
   title: string
@@ -33,6 +36,7 @@ export type GenerationSpec = {
   featuresPerBar: number
   bars: number
   beatsPerBar: number
+  subdivisionSwitch?: SubdivisionSwitch
 }
 
 export function seededRandom(seed: number): () => number {
@@ -69,7 +73,7 @@ function restStartWeight(beat: number, beatsPerBar: number): number {
   return beatsPerBar === 4 && beat === 2 ? 0.5 : 1
 }
 
-type Placed = { cell: Cell; start: number; role: 'feature' | 'filler' }
+type Placed = { cell: Cell; start: number; role: 'feature' | 'filler'; subdivision?: Subdivision }
 
 type BarPlan = { placed: Placed[]; features: Cell[]; fillers: Cell[] }
 
@@ -118,7 +122,61 @@ function cellsOfOneSubdivision(spec: GenerationSpec, random: () => number): { fe
   return { features: spec.features.filter(fits), fillers: fillers.some((cell) => cell.beats === 1) ? fillers : spec.fillers }
 }
 
+const SPLIT_SUBDIVISIONS: Subdivision[] = ['duple', 'triple']
+const SWITCH_QUARTER_CHANCE = 0.25
+const MAXIMUM_SWITCH_TRIES = 20
+
+function hasBothSplitSubdivisions(cells: Cell[]): boolean {
+  const subdivisions = new Set(cells.map(subdivisionOf))
+  return SPLIT_SUBDIVISIONS.every((subdivision) => subdivisions.has(subdivision))
+}
+
+function beatSubdivisions(mode: SubdivisionSwitch, beatsPerBar: number, random: () => number): Subdivision[] {
+  const [first, second] = random() < 0.5 ? SPLIT_SUBDIVISIONS : [...SPLIT_SUBDIVISIONS].reverse()
+  if (mode === 'half') {
+    return Array.from({ length: beatsPerBar }, (_, beat) => (beat < beatsPerBar / 2 ? first : second))
+  }
+  if (mode === 'beat') {
+    return Array.from({ length: beatsPerBar }, (_, beat) => (beat % 2 === 0 ? first : second))
+  }
+  const subdivisions = Array.from({ length: beatsPerBar }, () => pickWith(SPLIT_SUBDIVISIONS, random))
+  if (new Set(subdivisions).size === 1) {
+    subdivisions[Math.floor(random() * beatsPerBar)] = subdivisions[0] === first ? second : first
+  }
+  return subdivisions
+}
+
+function switchBasics(spec: GenerationSpec): Cell[] {
+  return spec.fillers.filter((cell) => cell.beats === 1 && subdivisionOf(cell) === 'basic')
+}
+
+function pickSwitchCell(spec: GenerationSpec, subdivision: Subdivision, beat: number, quarterChance: number, random: () => number): Placed {
+  const basics = switchBasics(spec)
+  if (basics.length > 0 && random() < quarterChance) {
+    return { cell: pickWith(basics, random), start: beat, role: 'filler', subdivision }
+  }
+  const cells = spec.features.filter((cell) => cell.beats === 1 && subdivisionOf(cell) === subdivision)
+  return { cell: pickFiller(cells, beat, spec.beatsPerBar, random), start: beat, role: 'feature', subdivision }
+}
+
+// 4분음표는 어느 갈래 자리에도 들어가지만, 마디에 두 갈래가 모두 남도록 마지막 시도에서는 넣지 않는다.
+function planSwitchBar(spec: GenerationSpec, mode: SubdivisionSwitch, random: () => number): BarPlan {
+  for (let attempt = 1; ; attempt++) {
+    const quarterChance = attempt < MAXIMUM_SWITCH_TRIES ? SWITCH_QUARTER_CHANCE : 0
+    const placed = beatSubdivisions(mode, spec.beatsPerBar, random).map((subdivision, beat) =>
+      pickSwitchCell(spec, subdivision, beat, quarterChance, random),
+    )
+    const plan = { placed, features: spec.features, fillers: switchBasics(spec) }
+    if (hasBothSplitSubdivisions(cellsOf(plan))) {
+      return plan
+    }
+  }
+}
+
 function planBar(spec: GenerationSpec, random: () => number): BarPlan {
+  if (spec.subdivisionSwitch) {
+    return planSwitchBar(spec, spec.subdivisionSwitch, random)
+  }
   const { features, fillers } = cellsOfOneSubdivision(spec, random)
   const slots: (Cell | null)[] = new Array(spec.beatsPerBar).fill(null)
   const placed: Placed[] = []
@@ -158,6 +216,9 @@ function sameBar(left: Cell[], right: Cell[]): boolean {
 }
 
 function redraw(entry: Placed, plan: BarPlan, spec: GenerationSpec, random: () => number): Placed {
+  if (entry.subdivision) {
+    return pickSwitchCell(spec, entry.subdivision, entry.start, SWITCH_QUARTER_CHANCE, random)
+  }
   if (entry.role === 'filler') {
     return { ...entry, cell: pickFiller(plan.fillers, entry.start, spec.beatsPerBar, random) }
   }
@@ -175,20 +236,24 @@ function varyBar(first: BarPlan, spec: GenerationSpec, random: () => number): Ba
       placed[index] = redraw(placed[index], first, spec, random)
     }
     const varied = { ...first, placed }
-    if (!sameBar(cellsOf(varied), cellsOf(first))) {
+    const keepsBothSubdivisions = !spec.subdivisionSwitch || hasBothSplitSubdivisions(cellsOf(varied))
+    if (!sameBar(cellsOf(varied), cellsOf(first)) && keepsBothSubdivisions) {
       return varied
     }
   }
   return null
 }
 
+// 갈래를 바꾸는 마디는 모든 박이 채우기 자리와 같지만, 끝을 바꿔도 두 갈래가 남을 때만 바꾼다.
 function endOnQuarter(plan: BarPlan, spec: GenerationSpec, random: () => number): BarPlan {
   const last = plan.placed[plan.placed.length - 1]
   const endings = plan.fillers.filter((cell) => subdivisionOf(cell) === 'basic')
-  if (last.role !== 'filler' || last.start !== spec.beatsPerBar - 1 || endings.length === 0 || random() >= QUARTER_ENDING_CHANCE) {
+  const endingSlot = spec.subdivisionSwitch !== undefined || last.role === 'filler'
+  if (!endingSlot || last.start !== spec.beatsPerBar - 1 || endings.length === 0 || random() >= QUARTER_ENDING_CHANCE) {
     return plan
   }
-  return { ...plan, placed: [...plan.placed.slice(0, -1), { ...last, cell: pickWith(endings, random) }] }
+  const ended = { ...plan, placed: [...plan.placed.slice(0, -1), { ...last, cell: pickWith(endings, random) }] }
+  return spec.subdivisionSwitch && !hasBothSplitSubdivisions(cellsOf(ended)) ? plan : ended
 }
 
 const QUARTER_FALLBACK: Cell = { beats: 1, items: [note(1, 4)] }

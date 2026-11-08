@@ -25,6 +25,7 @@ type Props = {
   tempoChange: number
   nextBpm: number
   autoTempo: boolean
+  layout?: 'loop' | 'song'
   onRetry: () => void
   onBack: () => void
   backLabel?: string
@@ -73,6 +74,7 @@ export default function ResultScreen({
   tempoChange,
   nextBpm,
   autoTempo,
+  layout = 'loop',
   onRetry,
   onBack,
   backLabel = '목록으로',
@@ -161,10 +163,10 @@ export default function ResultScreen({
           {'★'.repeat(stars)}
           {'☆'.repeat(5 - stars)}
         </span>{' '}
-        {result.passed ? '통과!' : '건너뛰었어요'}
+        {layout === 'song' ? '끝까지 쳤어요' : result.passed ? '통과!' : '건너뛰었어요'}
       </h2>
       <p className="muted">
-        {pattern.title} · {result.bpm} BPM · {result.repetitionsPlayed}번 반복
+        {pattern.title} · {result.bpm} BPM · {layout === 'song' ? `${pattern.bars}마디` : `${result.repetitionsPlayed}번 반복`}
         {record?.newBestStars && <span className="new-record"> 별 최고 기록!</span>}
         {record?.newBestBpm && <span className="new-record"> 최고 템포 기록!</span>}
       </p>
@@ -247,6 +249,7 @@ export default function ResultScreen({
         </p>
       )}
 
+      {layout === 'loop' && (
       <div className="button-row">
         {playing === null ? (
           <>
@@ -263,7 +266,9 @@ export default function ResultScreen({
           </button>
         )}
       </div>
+      )}
 
+      {layout === 'loop' && (
       <section className="result-tracks">
         <div className="result-repetition">
           <span />
@@ -309,6 +314,7 @@ export default function ResultScreen({
           ))
         })}
       </section>
+      )}
 
       <div className="button-row">
         {result.passed && onNext ? (

@@ -19,9 +19,25 @@ const VOICES: Record<SoundKind, Voice> = {
   tap: { frequency: 700, endFrequency: 420, type: 'square', gain: 0.3, lengthSec: 0.07 },
   'tap-low': { frequency: 450, endFrequency: 270, type: 'square', gain: 0.3, lengthSec: 0.07 },
   'tap-high': { frequency: 1000, endFrequency: 600, type: 'square', gain: 0.25, lengthSec: 0.07 },
+  melody: { frequency: 440, endFrequency: 440, type: 'triangle', gain: 0.32, lengthSec: 0.4 },
 }
 
+// 멜로디는 음높이가 고정되고 음 길이만큼 이어져서, 음높이가 떨어지는 짧은 타악기 소리인 기준음·탭 소리와 구별된다.
+const MELODY_ATTACK_SEC = 0.012
+const MELODY_LENGTH_RATIO = 0.92
+
 const SCHEDULE_LEAD_SEC = 0.3
+
+type AudioSessionNavigator = Navigator & { audioSession?: { type: string } }
+
+// iOS Safari 는 기본으로 무음 스위치를 따르는 세션이라 진동 모드에서 소리가 안 난다.
+// playback 으로 두면 무음 스위치와 무관하게 미디어 볼륨으로 소리가 난다(iOS 16.4 이상).
+function requestMediaPlaybackSession(): void {
+  const audioSession = typeof navigator === 'undefined' ? undefined : (navigator as AudioSessionNavigator).audioSession
+  if (audioSession && audioSession.type !== 'playback') {
+    audioSession.type = 'playback'
+  }
+}
 const STRESSED_GAIN = 1.8
 
 export class AudioEngine {
@@ -35,6 +51,7 @@ export class AudioEngine {
   }
 
   async unlock(): Promise<void> {
+    requestMediaPlaybackSession()
     const context = this.getContext()
     if (context.state !== 'running') {
       await context.resume()
@@ -60,14 +77,14 @@ export class AudioEngine {
       return
     }
     for (const sound of sounds) {
-      this.scheduleVoice(output, sound.kind, this.sessionStartTime + sound.timeMs / 1000, sound.stressed === true)
+      this.scheduleVoice(output, sound, this.sessionStartTime + sound.timeMs / 1000)
     }
   }
 
   // 세션 출력에 연결하면 세션을 멈출 때 막 낸 탭 소리까지 끊긴다.
   playNow(kind: SoundKind): void {
     const context = this.getContext()
-    this.scheduleVoice(context.destination, kind, context.currentTime, false)
+    this.scheduleVoice(context.destination, { timeMs: 0, kind }, context.currentTime)
   }
 
   sessionElapsedMs(): number {
@@ -95,22 +112,31 @@ export class AudioEngine {
     return performance.now() + (audioTime - context.currentTime + outputLatencySec) * 1000
   }
 
-  private scheduleVoice(output: AudioNode, kind: SoundKind, time: number, stressed: boolean): void {
+  private scheduleVoice(output: AudioNode, sound: ScheduledSound, time: number): void {
     const context = this.getContext()
-    const voice = VOICES[kind]
+    const voice = VOICES[sound.kind]
+    const frequency = sound.frequency ?? voice.frequency
+    const endFrequency = sound.frequency ?? voice.endFrequency
+    const lengthSec = sound.durationMs === undefined ? voice.lengthSec : (sound.durationMs / 1000) * MELODY_LENGTH_RATIO
+    const gain = Math.min(1, voice.gain * (sound.stressed === true ? STRESSED_GAIN : 1))
     const oscillator = context.createOscillator()
     const envelope = context.createGain()
     oscillator.type = voice.type
-    oscillator.frequency.setValueAtTime(voice.frequency, time)
-    if (voice.endFrequency !== voice.frequency) {
-      oscillator.frequency.exponentialRampToValueAtTime(voice.endFrequency, time + voice.lengthSec)
+    oscillator.frequency.setValueAtTime(frequency, time)
+    if (endFrequency !== frequency) {
+      oscillator.frequency.exponentialRampToValueAtTime(endFrequency, time + lengthSec)
     }
-    envelope.gain.setValueAtTime(Math.min(1, voice.gain * (stressed ? STRESSED_GAIN : 1)), time)
-    envelope.gain.exponentialRampToValueAtTime(0.0001, time + voice.lengthSec)
+    if (sound.kind === 'melody') {
+      envelope.gain.setValueAtTime(0.0001, time)
+      envelope.gain.linearRampToValueAtTime(gain, time + MELODY_ATTACK_SEC)
+    } else {
+      envelope.gain.setValueAtTime(gain, time)
+    }
+    envelope.gain.exponentialRampToValueAtTime(0.0001, time + lengthSec)
     oscillator.connect(envelope)
     envelope.connect(output)
     oscillator.start(time)
-    oscillator.stop(time + voice.lengthSec + 0.01)
+    oscillator.stop(time + lengthSec + 0.01)
   }
 }
 
