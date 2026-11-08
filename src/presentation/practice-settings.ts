@@ -37,7 +37,7 @@ export const DEFAULT_SETTINGS: StoredSettings = {
   target: 'stages',
   selectedStageId: '',
   patternId: '',
-  mode: 'reading',
+  mode: 'imitation',
   bpm: 80,
   guide: 'every-beat',
   autoTempo: true,
