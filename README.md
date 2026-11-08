@@ -33,7 +33,7 @@ pnpm lint    # oxlint
 
 휴대폰에서 쓰려면 `pnpm dev --host` 로 띄우고 같은 Wi-Fi 에서 표시된 주소로 연다.
 
-배포본은 https://atobaum.github.io/rhythm-trainer/ 에 있다. `main` 에 합치면 GitHub Actions 가 빌드해 GitHub Pages 에 올린다.
+배포본은 https://atobaum.github.io/rhythm-trainer/ 에 있다. `main` 에 합치면 GitHub Actions 가 빌드해 GitHub Pages 에 올린다. 휴대폰 브라우저에서 "홈 화면에 추가" 하면 앱처럼 열리고, 한 번 연 뒤에는 네트워크 없이도 연습할 수 있다.
 
 ### 화면
 
