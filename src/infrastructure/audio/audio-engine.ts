@@ -27,6 +27,17 @@ const MELODY_ATTACK_SEC = 0.012
 const MELODY_LENGTH_RATIO = 0.92
 
 const SCHEDULE_LEAD_SEC = 0.3
+
+type AudioSessionNavigator = Navigator & { audioSession?: { type: string } }
+
+// iOS Safari 는 기본으로 무음 스위치를 따르는 세션이라 진동 모드에서 소리가 안 난다.
+// playback 으로 두면 무음 스위치와 무관하게 미디어 볼륨으로 소리가 난다(iOS 16.4 이상).
+function requestMediaPlaybackSession(): void {
+  const audioSession = typeof navigator === 'undefined' ? undefined : (navigator as AudioSessionNavigator).audioSession
+  if (audioSession && audioSession.type !== 'playback') {
+    audioSession.type = 'playback'
+  }
+}
 const STRESSED_GAIN = 1.8
 
 export class AudioEngine {
@@ -40,6 +51,7 @@ export class AudioEngine {
   }
 
   async unlock(): Promise<void> {
+    requestMediaPlaybackSession()
     const context = this.getContext()
     if (context.state !== 'running') {
       await context.resume()
