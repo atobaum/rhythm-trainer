@@ -1,7 +1,7 @@
 ---
 created: 2026-11-07
 updated: 2026-11-07
-status: implementing
+status: done
 type: plan
 feature: practice-screen
 ---

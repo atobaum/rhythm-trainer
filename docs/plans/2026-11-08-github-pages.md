@@ -1,7 +1,7 @@
 ---
 created: 2026-11-08
 updated: 2026-11-08
-status: implementing
+status: done
 type: plan
 feature: design
 ---
