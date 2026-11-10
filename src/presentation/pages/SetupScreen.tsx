@@ -27,6 +27,7 @@ type Props = {
   onCalibrate: () => void
   sheetOpen: boolean
   onSheetChange: (open: boolean) => void
+  areaSwitch?: ReactNode
 }
 
 function Choice<T extends string | number>({
@@ -138,6 +139,7 @@ export default function SetupScreen({
   onCalibrate,
   sheetOpen,
   onSheetChange,
+  areaSwitch,
 }: Props) {
   const update = <K extends keyof StoredSettings>(key: K, value: StoredSettings[K]) => onChange({ ...settings, [key]: value })
   const clampBpm = (bpm: number) => Math.min(200, Math.max(40, Math.round(bpm)))
@@ -159,6 +161,7 @@ export default function SetupScreen({
 
   return (
     <div className={tab === 'practice' ? 'setup setup-practice' : 'setup'}>
+      {areaSwitch}
       <header className="setup-header">
         <h1 className="app-title">Rhythm Lab</h1>
         <nav className="tabs">

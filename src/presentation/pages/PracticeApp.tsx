@@ -1,4 +1,5 @@
 import { useCallback, useRef, useState } from 'react'
+import type { ReactNode } from 'react'
 import { calibrationSounds } from '../../application/calibration-session.ts'
 import { buildBarFlowPlan } from '../../application/bar-flow-plan.ts'
 import type { BarFlowPlan } from '../../application/bar-flow-plan.ts'
@@ -180,7 +181,7 @@ function selectedStage(settings: StoredSettings): Stage {
   )
 }
 
-export default function PracticeApp() {
+export default function PracticeApp({ areaSwitch }: { areaSwitch?: ReactNode }) {
   const [settings, setSettings] = useState<StoredSettings>(() => {
     const loaded = loadSettings()
     const patternExists = contentPatterns.some((pattern) => pattern.id === loaded.patternId)
@@ -746,6 +747,7 @@ export default function PracticeApp() {
       onTabChange={setSetupTab}
       sheetOpen={sheetOpen}
       onSheetChange={setSheetOpen}
+      areaSwitch={areaSwitch}
     />
   )
 }
