@@ -1413,7 +1413,11 @@ button {
 }
 
 .fretboard-inlay {
-  fill: #d6c3a3;
+  fill: #b08d5c;
+}
+
+.fretboard-side-marker {
+  fill: var(--text);
 }
 
 .fretboard-dim {

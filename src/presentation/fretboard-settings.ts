@@ -17,7 +17,7 @@ export type FretboardSettings = {
 }
 
 export const DEFAULT_FRETBOARD_SETTINGS: FretboardSettings = {
-  mode: 'name-the-note',
+  mode: 'find-the-position',
   strings: [...STRING_NUMBERS],
   fromFret: 0,
   toFret: 12,
