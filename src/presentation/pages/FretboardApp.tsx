@@ -1,13 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
-import { MAX_FRET, NOTE_NAMES, STRING_NUMBERS, noteName, pitchClassAt } from '../../domain/fretboard/fretboard.ts'
-import type { FretPosition } from '../../domain/fretboard/fretboard.ts'
+import { MAX_FRET, NOTE_NAMES, STRING_NUMBERS, frequencyAt, noteName, pitchClassAt, positionsInRange } from '../../domain/fretboard/fretboard.ts'
+import type { FretPosition, FretRange } from '../../domain/fretboard/fretboard.ts'
+import { addSession, cellTone, questionWeightFrom, recordKeyAt } from '../../domain/fretboard/position-records.ts'
+import type { PositionRecords } from '../../domain/fretboard/position-records.ts'
 import { acceptsTap, correctPitchClass, correctPositions, isCorrectAnswer, nextQuestion } from '../../domain/fretboard/questions.ts'
 import type { FretboardAnswer, FretboardMode, FretboardQuestion } from '../../domain/fretboard/questions.ts'
 import { summarizeSession } from '../../domain/fretboard/session-result.ts'
 import type { AnsweredQuestion, FretboardSessionResult } from '../../domain/fretboard/session-result.ts'
+import { audioEngine } from '../../infrastructure/audio/audio-engine.ts'
 import Fretboard from '../components/Fretboard.tsx'
-import type { FretMark } from '../components/Fretboard.tsx'
+import type { FretCellTone, FretMark } from '../components/Fretboard.tsx'
+import { clearPositionRecords, loadPositionRecords, savePositionRecords } from '../fretboard-records.ts'
 import { QUESTION_COUNTS, loadFretboardSettings, rangeOf, saveFretboardSettings } from '../fretboard-settings.ts'
 import type { FretboardSettings } from '../fretboard-settings.ts'
 import { useBackToHome } from '../hooks/use-back-to-home.ts'
@@ -76,14 +80,29 @@ function describeAnswer(answer: FretboardAnswer): string {
     : `${answer.position.fret}프렛(${noteName(pitchClassAt(answer.position))})`
 }
 
+function recordCellTones(records: PositionRecords, settings: FretboardSettings): FretCellTone[] {
+  return positionsInRange(rangeOf(settings)).flatMap((position) => {
+    const tone = cellTone(records[settings.mode][recordKeyAt(settings.mode, position)])
+    return tone ? [{ position, tone }] : []
+  })
+}
+
+function hasRecords(records: PositionRecords): boolean {
+  return Object.values(records).some((modeRecords) => Object.keys(modeRecords).length > 0)
+}
+
 function SetupView({
   settings,
+  records,
   onChange,
+  onClearRecords,
   onStart,
   areaSwitch,
 }: {
   settings: FretboardSettings
+  records: PositionRecords
   onChange: (settings: FretboardSettings) => void
+  onClearRecords: () => void
   onStart: () => void
   areaSwitch: ReactNode
 }) {
@@ -141,9 +160,37 @@ function SetupView({
         onChange={(questionCount) => onChange({ ...settings, questionCount })}
         options={QUESTION_COUNTS.map((count) => ({ value: count, label: `${count}문제` }))}
       />
+      <h2 className="section-title">정답 음 소리</h2>
+      <ChoiceButtons<'on' | 'off'>
+        value={settings.soundEnabled ? 'on' : 'off'}
+        onChange={(value) => onChange({ ...settings, soundEnabled: value === 'on' })}
+        options={[
+          { value: 'on', label: '켬' },
+          { value: 'off', label: '끔' },
+        ]}
+      />
       <div className="fretboard-preview">
-        <Fretboard range={rangeOf(settings)} />
+        <Fretboard range={rangeOf(settings)} cellTones={recordCellTones(records, settings)} />
       </div>
+      {hasRecords(records) && (
+        <div className="fretboard-record-legend small muted">
+          <span>
+            <span className="fretboard-legend-swatch fretboard-cell-strong-swatch" />
+            익숙함
+          </span>
+          <span>
+            <span className="fretboard-legend-swatch fretboard-cell-shaky-swatch" />
+            흔들림
+          </span>
+          <span>
+            <span className="fretboard-legend-swatch fretboard-cell-weak-swatch" />
+            약함
+          </span>
+          <button type="button" className="secondary-button fretboard-clear-records" onClick={onClearRecords}>
+            기록 지우기
+          </button>
+        </div>
+      )}
       {settings.strings.length === 0 && <p className="muted small">줄을 하나 이상 골라 주세요.</p>}
       <button type="button" className="start-button" disabled={settings.strings.length === 0} onClick={onStart}>
         시작
@@ -154,18 +201,31 @@ function SetupView({
 
 type Feedback = { answer: FretboardAnswer; correct: boolean }
 
+function soundPosition(question: FretboardQuestion, answer: FretboardAnswer, range: FretRange): FretPosition {
+  if (question.mode === 'name-the-note') {
+    return question.position
+  }
+  if (answer.mode === 'find-the-position' && isCorrectAnswer(question, answer)) {
+    return answer.position
+  }
+  return correctPositions(question, range).reduce((lowest, position) => (position.fret < lowest.fret ? position : lowest))
+}
+
 function QuizView({
   settings,
+  records,
   onFinish,
   onQuit,
 }: {
   settings: FretboardSettings
+  records: PositionRecords
   onFinish: (answers: AnsweredQuestion[]) => void
   onQuit: () => void
 }) {
   const range = useMemo(() => rangeOf(settings), [settings])
+  const [weightOf] = useState(() => questionWeightFrom(records, settings.mode))
   const onFinishRef = useRef(onFinish)
-  const [question, setQuestion] = useState(() => nextQuestion(settings.mode, range, null, Math.random))
+  const [question, setQuestion] = useState(() => nextQuestion(settings.mode, range, null, Math.random, weightOf))
   const [answers, setAnswers] = useState<AnsweredQuestion[]>([])
   const [feedback, setFeedback] = useState<Feedback | null>(null)
   const shownAtRef = useRef(0)
@@ -189,12 +249,12 @@ function QuizView({
           return
         }
         setFeedback(null)
-        setQuestion(nextQuestion(settings.mode, range, question, Math.random))
+        setQuestion(nextQuestion(settings.mode, range, question, Math.random, weightOf))
       },
       feedback.correct ? FRETBOARD_TIMING.correctAdvanceMs : FRETBOARD_TIMING.wrongAdvanceMs,
     )
     return () => window.clearTimeout(timer)
-  }, [feedback, question, answers, settings, range])
+  }, [feedback, question, answers, settings, range, weightOf])
 
   if (!question) {
     return null
@@ -207,6 +267,9 @@ function QuizView({
     const correct = isCorrectAnswer(question, given)
     setAnswers((previous) => [...previous, { question, answer: given, responseMs: Math.max(0, timeStamp - shownAtRef.current) }])
     setFeedback({ answer: given, correct })
+    if (settings.soundEnabled) {
+      audioEngine.playNow('melody', frequencyAt(soundPosition(question, given, range)))
+    }
   }
 
   const handleTap = (position: FretPosition, timeStamp: number) => {
@@ -322,6 +385,7 @@ function ResultView({
 
 export default function FretboardApp({ areaSwitch }: { areaSwitch: ReactNode }) {
   const [settings, setSettings] = useState(loadFretboardSettings)
+  const [records, setRecords] = useState(loadPositionRecords)
   const [screen, setScreen] = useState<Screen>({ kind: 'setup' })
   const attemptRef = useRef(0)
 
@@ -333,7 +397,23 @@ export default function FretboardApp({ areaSwitch }: { areaSwitch: ReactNode }) 
     saveFretboardSettings(next)
   }
 
+  const clearRecords = () => {
+    if (window.confirm('지판 기록을 모두 지울까요?')) {
+      setRecords(clearPositionRecords())
+    }
+  }
+
+  const finish = (answers: AnsweredQuestion[]) => {
+    const next = addSession(records, settings.mode, answers)
+    setRecords(next)
+    savePositionRecords(next)
+    setScreen({ kind: 'result', result: summarizeSession(answers) })
+  }
+
   const start = () => {
+    if (settings.soundEnabled) {
+      void audioEngine.unlock()
+    }
     attemptRef.current += 1
     setScreen({ kind: 'quiz', attempt: attemptRef.current })
   }
@@ -343,7 +423,8 @@ export default function FretboardApp({ areaSwitch }: { areaSwitch: ReactNode }) 
       <QuizView
         key={screen.attempt}
         settings={settings}
-        onFinish={(answers) => setScreen({ kind: 'result', result: summarizeSession(answers) })}
+        records={records}
+        onFinish={finish}
         onQuit={goHome}
       />
     )
@@ -351,5 +432,14 @@ export default function FretboardApp({ areaSwitch }: { areaSwitch: ReactNode }) 
   if (screen.kind === 'result') {
     return <ResultView result={screen.result} onRetry={start} onHome={goHome} />
   }
-  return <SetupView settings={settings} onChange={changeSettings} onStart={start} areaSwitch={areaSwitch} />
+  return (
+    <SetupView
+      settings={settings}
+      records={records}
+      onChange={changeSettings}
+      onClearRecords={clearRecords}
+      onStart={start}
+      areaSwitch={areaSwitch}
+    />
+  )
 }

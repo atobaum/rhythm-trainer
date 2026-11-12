@@ -2,6 +2,7 @@ import { useLayoutEffect, useRef, useState } from 'react'
 import type { PointerEvent } from 'react'
 import { DOUBLE_INLAY_FRET, INLAY_FRETS, STRING_NUMBERS, drawnFrets, isInRange, openStringNoteName } from '../../domain/fretboard/fretboard.ts'
 import type { FretPosition, FretRange } from '../../domain/fretboard/fretboard.ts'
+import type { CellTone } from '../../domain/fretboard/position-records.ts'
 
 const LABEL_WIDTH = 40
 const STRING_GAP = 40
@@ -21,9 +22,15 @@ export type FretMark = {
   tone: FretMarkTone
 }
 
+export type FretCellTone = {
+  position: FretPosition
+  tone: CellTone
+}
+
 type Props = {
   range: FretRange
   marks?: FretMark[]
+  cellTones?: FretCellTone[]
   highlightString?: number
   onTap?: (position: FretPosition, timeStamp: number) => void
 }
@@ -53,7 +60,7 @@ function useElementWidth() {
   return { ref, width }
 }
 
-export default function Fretboard({ range, marks = [], highlightString, onTap }: Props) {
+export default function Fretboard({ range, marks = [], cellTones = [], highlightString, onTap }: Props) {
   const { ref, width } = useElementWidth()
   const drawn = drawnFrets(range)
   const frets = Array.from({ length: drawn.toFret - drawn.fromFret + 1 }, (_, offset) => drawn.fromFret + offset)
@@ -92,6 +99,16 @@ export default function Fretboard({ range, marks = [], highlightString, onTap }:
           aria-label={`지판 ${drawn.fromFret}~${drawn.toFret}프렛`}
         >
           <rect className="fretboard-neck" x={neckLeft} y={0} width={width - neckLeft} height={BOARD_HEIGHT} />
+          {cellTones.map(({ position, tone }) => (
+            <rect
+              key={`tone-${position.stringNumber}-${position.fret}`}
+              className={`fretboard-cell fretboard-cell-${tone}`}
+              x={columnLeft(position.fret)}
+              y={(position.stringNumber - 1) * STRING_GAP}
+              width={columnWidth}
+              height={STRING_GAP}
+            />
+          ))}
           {frets.map((fret) => {
             const x = columnCenter(fret)
             if (fret === DOUBLE_INLAY_FRET) {

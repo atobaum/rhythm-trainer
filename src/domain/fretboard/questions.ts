@@ -9,9 +9,11 @@ export type FretboardQuestion =
 
 export type FretboardAnswer = { mode: 'name-the-note'; pitchClass: number } | { mode: 'find-the-position'; position: FretPosition }
 
-type WeightedQuestion = { question: FretboardQuestion; weight: number }
+export type QuestionWeight = (question: FretboardQuestion) => number
 
-function sameQuestion(left: FretboardQuestion, right: FretboardQuestion): boolean {
+const EVEN_WEIGHT: QuestionWeight = () => 1
+
+export function sameQuestion(left: FretboardQuestion, right: FretboardQuestion): boolean {
   if (left.mode === 'name-the-note' && right.mode === 'name-the-note') {
     return left.position.stringNumber === right.position.stringNumber && left.position.fret === right.position.fret
   }
@@ -21,24 +23,22 @@ function sameQuestion(left: FretboardQuestion, right: FretboardQuestion): boolea
   return false
 }
 
-// 음 보고 위치 찍기는 줄을 고르게, 그 줄 안에서는 음을 고르게 뽑는다. 범위 안에 두 번 나오는 음이 더 자주 나오지 않게 한다.
-function weightedCandidates(mode: FretboardMode, range: FretRange): WeightedQuestion[] {
+export function candidateQuestions(mode: FretboardMode, range: FretRange): FretboardQuestion[] {
   const positions = positionsInRange(range)
   if (mode === 'name-the-note') {
-    return positions.map((position) => ({ question: { mode, position }, weight: 1 }))
+    return positions.map((position) => ({ mode, position }))
   }
-  const strings = [...new Set(positions.map((position) => position.stringNumber))]
-  return strings.flatMap((stringNumber) => {
-    const pitchClasses = [...new Set(positions.filter((position) => position.stringNumber === stringNumber).map(pitchClassAt))]
-    return pitchClasses.map((pitchClass) => ({
-      question: { mode, stringNumber, pitchClass },
-      weight: 1 / (strings.length * pitchClasses.length),
-    }))
-  })
-}
-
-export function candidateQuestions(mode: FretboardMode, range: FretRange): FretboardQuestion[] {
-  return weightedCandidates(mode, range).map((candidate) => candidate.question)
+  const keys = new Set<string>()
+  const questions: FretboardQuestion[] = []
+  for (const position of positions) {
+    const pitchClass = pitchClassAt(position)
+    const key = `${position.stringNumber}:${pitchClass}`
+    if (!keys.has(key)) {
+      keys.add(key)
+      questions.push({ mode, stringNumber: position.stringNumber, pitchClass })
+    }
+  }
+  return questions
 }
 
 export function nextQuestion(
@@ -46,13 +46,14 @@ export function nextQuestion(
   range: FretRange,
   previous: FretboardQuestion | null,
   random: () => number,
+  weightOf: QuestionWeight = EVEN_WEIGHT,
 ): FretboardQuestion | null {
-  const all = weightedCandidates(mode, range)
+  const all = candidateQuestions(mode, range)
   if (all.length === 0) {
     return null
   }
-  const fresh = previous ? all.filter((candidate) => !sameQuestion(candidate.question, previous)) : all
-  const pool = fresh.length > 0 ? fresh : all
+  const fresh = previous ? all.filter((question) => !sameQuestion(question, previous)) : all
+  const pool = (fresh.length > 0 ? fresh : all).map((question) => ({ question, weight: weightOf(question) }))
   const totalWeight = pool.reduce((sum, candidate) => sum + candidate.weight, 0)
   let remaining = random() * totalWeight
   for (const candidate of pool) {
