@@ -82,9 +82,9 @@ export class AudioEngine {
   }
 
   // 세션 출력에 연결하면 세션을 멈출 때 막 낸 탭 소리까지 끊긴다.
-  playNow(kind: SoundKind): void {
+  playNow(kind: SoundKind, frequency?: number): void {
     const context = this.getContext()
-    this.scheduleVoice(context.destination, { timeMs: 0, kind }, context.currentTime)
+    this.scheduleVoice(context.destination, { timeMs: 0, kind, frequency }, context.currentTime)
   }
 
   sessionElapsedMs(): number {

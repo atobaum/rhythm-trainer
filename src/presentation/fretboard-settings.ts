@@ -14,14 +14,16 @@ export type FretboardSettings = {
   fromFret: number
   toFret: number
   questionCount: QuestionCount
+  soundEnabled: boolean
 }
 
 export const DEFAULT_FRETBOARD_SETTINGS: FretboardSettings = {
-  mode: 'name-the-note',
+  mode: 'find-the-position',
   strings: [...STRING_NUMBERS],
   fromFret: 0,
   toFret: 12,
   questionCount: 20,
+  soundEnabled: true,
 }
 
 export function normalizeFretboardSettings(stored: Partial<FretboardSettings>): FretboardSettings {
@@ -33,9 +35,10 @@ export function normalizeFretboardSettings(stored: Partial<FretboardSettings>): 
   const fromFret = typeof stored.fromFret === 'number' ? clampFret(stored.fromFret) : defaults.fromFret
   const toFret = typeof stored.toFret === 'number' ? clampFret(stored.toFret) : defaults.toFret
   const questionCount = QUESTION_COUNTS.find((count) => count === stored.questionCount) ?? defaults.questionCount
+  const soundEnabled = typeof stored.soundEnabled === 'boolean' ? stored.soundEnabled : defaults.soundEnabled
   return fromFret <= toFret
-    ? { mode, strings, fromFret, toFret, questionCount }
-    : { mode, strings, fromFret: defaults.fromFret, toFret: defaults.toFret, questionCount }
+    ? { mode, strings, fromFret, toFret, questionCount, soundEnabled }
+    : { mode, strings, fromFret: defaults.fromFret, toFret: defaults.toFret, questionCount, soundEnabled }
 }
 
 export function loadFretboardSettings(): FretboardSettings {

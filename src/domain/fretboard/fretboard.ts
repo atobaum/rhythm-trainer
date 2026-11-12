@@ -6,6 +6,11 @@ export const DOUBLE_INLAY_FRET = 12
 // 줄 번호(1번줄이 가장 높은 줄)별 표준 튜닝 개방현 음. C 를 0 으로 둔 반음 수다.
 const OPEN_STRING_PITCH_CLASSES: Record<number, number> = { 1: 4, 2: 11, 3: 7, 4: 2, 5: 9, 6: 4 }
 
+// 표준 튜닝 실제 음높이. 6번줄 개방현 E2 가 MIDI 40 이다.
+const OPEN_STRING_MIDI_NUMBERS: Record<number, number> = { 1: 64, 2: 59, 3: 55, 4: 50, 5: 45, 6: 40 }
+const A4_MIDI_NUMBER = 69
+const A4_FREQUENCY = 440
+
 export const NOTE_NAMES = ['C', 'C♯/D♭', 'D', 'D♯/E♭', 'E', 'F', 'F♯/G♭', 'G', 'G♯/A♭', 'A', 'A♯/B♭', 'B'] as const
 
 export type FretPosition = {
@@ -21,6 +26,11 @@ export type FretRange = {
 
 export function pitchClassAt(position: FretPosition): number {
   return (OPEN_STRING_PITCH_CLASSES[position.stringNumber] + position.fret) % 12
+}
+
+export function frequencyAt(position: FretPosition): number {
+  const midiNumber = OPEN_STRING_MIDI_NUMBERS[position.stringNumber] + position.fret
+  return A4_FREQUENCY * 2 ** ((midiNumber - A4_MIDI_NUMBER) / 12)
 }
 
 export function noteName(pitchClass: number): string {

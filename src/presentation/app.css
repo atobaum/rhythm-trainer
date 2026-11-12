@@ -1413,7 +1413,56 @@ button {
 }
 
 .fretboard-inlay {
-  fill: #d6c3a3;
+  fill: #b08d5c;
+}
+
+.fretboard-cell-strong {
+  fill: #86efac;
+}
+
+.fretboard-cell-shaky {
+  fill: #fde047;
+}
+
+.fretboard-cell-weak {
+  fill: #fca5a5;
+}
+
+.fretboard-record-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  margin: 8px 0 0;
+}
+
+.fretboard-legend-swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: 4px;
+  border-radius: 2px;
+  vertical-align: -1px;
+}
+
+.fretboard-cell-strong-swatch {
+  background: #86efac;
+}
+
+.fretboard-cell-shaky-swatch {
+  background: #fde047;
+}
+
+.fretboard-cell-weak-swatch {
+  background: #fca5a5;
+}
+
+.fretboard-clear-records {
+  margin-left: auto;
+}
+
+.fretboard-side-marker {
+  fill: var(--text);
 }
 
 .fretboard-dim {

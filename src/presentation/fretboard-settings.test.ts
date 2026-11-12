@@ -18,4 +18,9 @@ describe('지판 설정 읽기', () => {
     const settings = normalizeFretboardSettings({ fromFret: 9, toFret: 3 })
     expect([settings.fromFret, settings.toFret]).toEqual([0, 12])
   })
+
+  it('소리 설정이 없던 저장값은 소리를 켠다', () => {
+    expect(normalizeFretboardSettings({ mode: 'name-the-note' }).soundEnabled).toBe(true)
+    expect(normalizeFretboardSettings({ soundEnabled: false }).soundEnabled).toBe(false)
+  })
 })

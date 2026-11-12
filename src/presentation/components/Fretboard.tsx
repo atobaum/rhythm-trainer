@@ -2,10 +2,14 @@ import { useLayoutEffect, useRef, useState } from 'react'
 import type { PointerEvent } from 'react'
 import { DOUBLE_INLAY_FRET, INLAY_FRETS, STRING_NUMBERS, drawnFrets, isInRange, openStringNoteName } from '../../domain/fretboard/fretboard.ts'
 import type { FretPosition, FretRange } from '../../domain/fretboard/fretboard.ts'
+import type { CellTone } from '../../domain/fretboard/position-records.ts'
 
 const LABEL_WIDTH = 40
 const STRING_GAP = 40
+const SIDE_MARKER_HEIGHT = 12
+const SIDE_MARKER_RADIUS = 3.5
 const FRET_NUMBER_HEIGHT = 22
+const INLAY_RADIUS = 7
 const BOARD_HEIGHT = STRING_GAP * STRING_NUMBERS.length
 const THINNEST_STRING_WIDTH = 1
 const THICKEST_STRING_WIDTH = 4
@@ -18,11 +22,21 @@ export type FretMark = {
   tone: FretMarkTone
 }
 
+export type FretCellTone = {
+  position: FretPosition
+  tone: CellTone
+}
+
 type Props = {
   range: FretRange
   marks?: FretMark[]
+  cellTones?: FretCellTone[]
   highlightString?: number
   onTap?: (position: FretPosition, timeStamp: number) => void
+}
+
+function isInlayFret(fret: number): boolean {
+  return fret === DOUBLE_INLAY_FRET || (INLAY_FRETS as readonly number[]).includes(fret)
 }
 
 function stringWidth(stringNumber: number): number {
@@ -46,7 +60,7 @@ function useElementWidth() {
   return { ref, width }
 }
 
-export default function Fretboard({ range, marks = [], highlightString, onTap }: Props) {
+export default function Fretboard({ range, marks = [], cellTones = [], highlightString, onTap }: Props) {
   const { ref, width } = useElementWidth()
   const drawn = drawnFrets(range)
   const frets = Array.from({ length: drawn.toFret - drawn.fromFret + 1 }, (_, offset) => drawn.fromFret + offset)
@@ -79,24 +93,34 @@ export default function Fretboard({ range, marks = [], highlightString, onTap }:
       {columnWidth > 0 && (
         <svg
           width={width}
-          height={BOARD_HEIGHT + FRET_NUMBER_HEIGHT}
+          height={BOARD_HEIGHT + SIDE_MARKER_HEIGHT + FRET_NUMBER_HEIGHT}
           onPointerDown={handlePointerDown}
           role="img"
           aria-label={`지판 ${drawn.fromFret}~${drawn.toFret}프렛`}
         >
           <rect className="fretboard-neck" x={neckLeft} y={0} width={width - neckLeft} height={BOARD_HEIGHT} />
+          {cellTones.map(({ position, tone }) => (
+            <rect
+              key={`tone-${position.stringNumber}-${position.fret}`}
+              className={`fretboard-cell fretboard-cell-${tone}`}
+              x={columnLeft(position.fret)}
+              y={(position.stringNumber - 1) * STRING_GAP}
+              width={columnWidth}
+              height={STRING_GAP}
+            />
+          ))}
           {frets.map((fret) => {
             const x = columnCenter(fret)
             if (fret === DOUBLE_INLAY_FRET) {
               return (
                 <g key={`inlay-${fret}`} className="fretboard-inlay">
-                  <circle cx={x} cy={STRING_GAP * 2} r={6} />
-                  <circle cx={x} cy={STRING_GAP * 4} r={6} />
+                  <circle cx={x} cy={STRING_GAP * 2} r={INLAY_RADIUS} />
+                  <circle cx={x} cy={STRING_GAP * 4} r={INLAY_RADIUS} />
                 </g>
               )
             }
-            return (INLAY_FRETS as readonly number[]).includes(fret) ? (
-              <circle key={`inlay-${fret}`} className="fretboard-inlay" cx={x} cy={STRING_GAP * 3} r={6} />
+            return isInlayFret(fret) ? (
+              <circle key={`inlay-${fret}`} className="fretboard-inlay" cx={x} cy={STRING_GAP * 3} r={INLAY_RADIUS} />
             ) : null
           })}
           {frets.map((fret) => {
@@ -147,16 +171,24 @@ export default function Fretboard({ range, marks = [], highlightString, onTap }:
               r={Math.min(MARK_RADIUS, columnWidth / 2 - 1)}
             />
           ))}
+          {frets.filter(isInlayFret).map((fret) => {
+            const x = columnCenter(fret)
+            const y = BOARD_HEIGHT + SIDE_MARKER_HEIGHT / 2
+            const offsets = fret === DOUBLE_INLAY_FRET ? [-SIDE_MARKER_RADIUS * 1.6, SIDE_MARKER_RADIUS * 1.6] : [0]
+            return (
+              <g key={`side-${fret}`} className="fretboard-side-marker">
+                {offsets.map((offset) => (
+                  <circle key={offset} cx={x + offset} cy={y} r={SIDE_MARKER_RADIUS} />
+                ))}
+              </g>
+            )
+          })}
           {frets.map((fret) => (
             <text
               key={`number-${fret}`}
-              className={
-                fret === DOUBLE_INLAY_FRET || (INLAY_FRETS as readonly number[]).includes(fret)
-                  ? 'fretboard-number fretboard-number-inlay'
-                  : 'fretboard-number'
-              }
+              className={isInlayFret(fret) ? 'fretboard-number fretboard-number-inlay' : 'fretboard-number'}
               x={columnCenter(fret)}
-              y={BOARD_HEIGHT + FRET_NUMBER_HEIGHT / 2 + 2}
+              y={BOARD_HEIGHT + SIDE_MARKER_HEIGHT + FRET_NUMBER_HEIGHT / 2 + 2}
             >
               {fret}
             </text>
